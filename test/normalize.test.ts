@@ -24,6 +24,18 @@ describe("compatibility normalization", () => {
     expect(normalizeAnswer(tree, "child")).toBe("child");
   });
 
+  it("normalizes a JSON-stringified multiple-choice default produced by a model tool call", () => {
+    const question = normalizeRequest({
+      question: "Stack",
+      inputType: "checkbox",
+      multiple: true,
+      options: [{ id: "typescript", label: "TypeScript" }, { id: "python", label: "Python" }],
+      default: '["typescript"]',
+      required: true,
+    }).questions[0]!;
+    expect(question.default).toEqual(["typescript"]);
+  });
+
   it("keeps optional empty answers but blocks required empty answers", () => {
     const optional = normalizeRequest({ question: "Optional", default: "suggested" }).questions[0]!;
     const required = normalizeRequest({ question: "Required", default: "suggested", required: true }).questions[0]!;

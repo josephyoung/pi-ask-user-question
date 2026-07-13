@@ -25,7 +25,9 @@ describe("extension public tool", () => {
   it("routes textarea, static single choice and confirmation to matching primitives", async () => {
     const ctx = context(); const tool = createTool();
     expect((await tool.execute("a", { question: "Bio", inputType: "textarea", default: "bio" }, undefined, undefined, ctx)).details).toEqual({ status: "answered", answer: "long edited" });
-    expect((await tool.execute("b", { question: "Pick", options: [{ id: 1, label: "One" }, { id: 2, label: "Two" }], default: 1 }, undefined, undefined, ctx)).details).toEqual({ status: "answered", answer: 2 });
+    const selected = await tool.execute("b", { question: "Pick", options: [{ id: 1, label: "One" }, { id: 2, label: "Two" }], default: 1 }, undefined, undefined, ctx);
+    expect(selected.details).toEqual({ status: "answered", answer: 2 });
+    expect(selected.content[0]?.text).toBe('User answered the question: "Two". Continue with this answer.');
     expect((await tool.execute("c", { question: "Proceed?", confirm: true }, undefined, undefined, ctx)).details).toEqual({ status: "answered", answer: false });
     expect(ctx.ui.custom).not.toHaveBeenCalled();
   });

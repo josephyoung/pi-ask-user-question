@@ -2,18 +2,34 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { description, parameters, promptGuidelines, promptSnippet } from "./contract.js";
 import { createQuestionForm, type FormOutcome } from "./form.js";
 import { isOtherOption, normalizeAnswer, normalizeRequest } from "./normalize.js";
+import { flattenOptions } from "./options.js";
 import { requiresCustomPresentation } from "./presentation.js";
 import type { Answer, AskUserQuestionResult, NormalizedQuestion, NormalizedRequest, RawRequest } from "./types.js";
 
 export const ASK_USER_QUESTION_TOOL_NAME = "ask_user_question";
 
-function resultPayload(result: AskUserQuestionResult) {
+function resultPayload(result: AskUserQuestionResult, displayedAnswer?: unknown) {
   return {
     content: [{ type: "text" as const, text: result.status === "answered"
-      ? `User answered the question: ${JSON.stringify(result.answer)}. Continue with this answer.`
+      ? `User answered the question: ${JSON.stringify(displayedAnswer ?? result.answer)}. Continue with this answer.`
       : "User cancelled the question. Stop the current workflow. Do not ask another question or retry unless the user sends a new message explicitly requesting it." }],
     details: result,
   };
+}
+
+function displayQuestionAnswer(question: NormalizedQuestion, answer: Answer): Answer {
+  if (question.kind !== "single" && question.kind !== "multiple") return answer;
+  const options = flattenOptions(question.options ?? []);
+  const label = (value: string | number) => options.find(option => option.id === value)?.label ?? value;
+  return Array.isArray(answer) ? answer.map(label) : typeof answer === "boolean" ? answer : label(answer);
+}
+function displayAnswer(request: NormalizedRequest, answer: Answer | Record<string, Answer>) {
+  if (!request.grouped) return displayQuestionAnswer(request.questions[0]!, answer as Answer);
+  const answers = answer as Record<string, Answer>;
+  return Object.fromEntries(Object.entries(answers).map(([id, value]) => {
+    const question = request.questions.find(candidate => candidate.id === id);
+    return [id, question ? displayQuestionAnswer(question, value) : value];
+  }));
 }
 
 async function primitive(question: NormalizedQuestion, signal: AbortSignal | undefined, ctx: ExtensionContext) {
@@ -57,14 +73,15 @@ export function createTool() {
         if (outcome.kind === "aborted") throw new Error("Question was aborted");
         if (outcome.kind === "cancelled") return resultPayload({ status: "cancelled" });
         const answer = request.grouped ? outcome.answers : outcome.answers[request.questions[0]!.id]!;
-        return resultPayload({ status: "answered", answer });
+        return resultPayload({ status: "answered", answer }, displayAnswer(request, answer));
       }
       const question = request.questions[0]!;
       if (signal?.aborted) throw new Error("Question was aborted");
       const { answer } = await primitive(question, signal, ctx);
       if (signal?.aborted) throw new Error("Question was aborted");
       if (answer === undefined) return resultPayload({ status: "cancelled" });
-      return resultPayload({ status: "answered", answer: normalizeAnswer(question, answer) as Answer });
+      const normalized = normalizeAnswer(question, answer) as Answer;
+      return resultPayload({ status: "answered", answer: normalized }, displayAnswer(request, normalized));
     },
   };
 }
