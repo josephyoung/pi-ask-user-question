@@ -245,7 +245,8 @@ beforeAll(async () => {
   await new Promise<void>(resolvePromise => fixtureServer.listen(0, "127.0.0.1", resolvePromise));
   const address = fixtureServer.address(); if (!address || typeof address === "string") throw new Error("fixture did not bind");
   baseUrl = `http://127.0.0.1:${address.port}`;
-  const installOutput = await runAsync("pi", ["install", `${baseUrl}/local/repo.git`, "-l"], project, { PI_CODING_AGENT_DIR: state, NPM_CONFIG_CACHE: join(sandbox, "npm-cache") });
+  const packageSource = process.env.PI_ACCEPTANCE_PACKAGE_SOURCE ?? `${baseUrl}/local/repo.git`;
+  const installOutput = await runAsync("pi", ["install", packageSource, "-l"], project, { PI_CODING_AGENT_DIR: state, NPM_CONFIG_CACHE: join(sandbox, "npm-cache") });
   expect(installOutput).toContain("Installed");
   expect(run("pi", ["--version"], project, { PI_CODING_AGENT_DIR: state }).trim()).toBe("0.80.6");
   writeFileSync(join(state, "models.json"), JSON.stringify({ providers: { acceptance: { baseUrl: `${baseUrl}/v1`, api: "openai-completions", apiKey: "test", compat: { supportsDeveloperRole: false, supportsReasoningEffort: false }, models: [{ id: "local", reasoning: false, contextWindow: 32000, maxTokens: 4096 }] } } }));
@@ -283,6 +284,41 @@ describe("real Pi CLI acceptance in isolated Git-installed environment", () => {
       { id: "choice", question: "Grouped remote", inputType: "select", default: "alpha", dataSource: { type: "api", endpoint: "/remote", resultPath: "payload.rows", idField: "code", labelField: "text" } },
     ], dataSourceBaseUrl: baseUrl };
     expect(await runPi({ args: grouped, marker: "Grouped text", keys: "\u0013", expected: '"text":"ready"' })).toContain("CONTINUED:");
+  }, 120_000);
+
+  it("renders and submits the exact payloads produced from the manual acceptance prompts", async () => {
+    const structured = await runPi({ args: { questions: [
+      { id: "plan", question: "选择实施方案", options: [{ id: 1, label: "保守方案" }, { id: 2, label: "推荐方案" }], required: true, default: "推荐方案" },
+      { id: "languages", question: "选择开发语言", options: [{ id: "ts", label: "TypeScript" }, { id: "py", label: "Python" }, { id: "go", label: "Go" }], multiple: true, required: true, default: ["TypeScript", "py"] },
+      { id: "typed", question: "选择零值类型", options: [{ id: 0, label: "数字零" }, { id: "0", label: "字符串零" }], required: true, default: "string:0" },
+    ] }, steps: [
+      { marker: ">  推荐方案", keys: "\t" },
+      { marker: "> [x] TypeScript", keys: "\t" },
+      { marker: ">  字符串零", keys: "\u0013" },
+    ], expected: '"languages":["ts","py"]' });
+    expect(structured).toContain("选择实施方案: 推荐方案");
+
+    const multiple = await runPi({ args: {
+      question: "启用哪些功能", multiple: true, required: true,
+      options: [{ id: "search", label: "全文搜索" }, { id: "export", label: "数据导出" }, { id: "audit", label: "审计日志" }],
+      default: ["search", "export"],
+    }, marker: "> [x] 全文搜索", keys: "\u0013", expected: '["search","export"]' });
+    expect(multiple).toContain("启用哪些功能: 全文搜索, 数据导出");
+
+    const optional = await runPi({ args: { questions: [
+      { id: "environment", question: "选择部署环境", inputType: "select", options: ["开发环境", "生产环境"], default: "开发环境", required: false },
+      { id: "module", question: "选择模块", inputType: "treeSelect", options: [{ id: "frontend", label: "前端", children: [{ id: "web", label: "Web" }, { id: "mobile", label: "移动端" }] }, { id: "backend", label: "后端" }], default: { id: "frontend", label: "前端" }, required: false },
+    ] }, marker: ">  开发环境", keys: "\u0013", expected: '"module":"frontend"' });
+    expect(optional).toContain("选择模块: 前端");
+
+    const release = await runPi({ args: { questions: [
+      { id: "title", question: "发布标题", default: "发布 ask-user-question 0.1.2", required: true },
+      { id: "release_type", question: "发布类型", options: [{ id: "patch", label: "补丁版本" }, { id: "minor", label: "次要版本" }, { id: "major", label: "主要版本" }], default: "补丁版本", required: true },
+      { id: "features", question: "包含哪些能力", multiple: true, options: ["结构化默认值", "日期原样返回", "远程分页"], default: ["结构化默认值", "远程分页"], required: true },
+      { id: "release_date", question: "发布日期", inputType: "date", dateFormat: "yyyy-MM-dd", default: "2026-07-15", required: true },
+      { id: "notes", question: "发布说明", inputType: "textarea", default: "修复 Pi CLI 兼容问题", required: false },
+    ] }, marker: "> 发布标题: 发布 ask-user-question 0.1.2", keys: "\u0013", expected: '"release_type":"patch"' });
+    expect(release).toContain("包含哪些能力: 结构化默认值, 远程分页");
   }, 120_000);
 
   it("submits structured multiple-choice labels without toggling the selection on Enter", async () => {

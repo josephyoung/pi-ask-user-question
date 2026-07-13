@@ -64,6 +64,7 @@ export function createTool() {
       try {
         if (advanced) {
           const outcome = await custom(request, signal, ctx);
+          if (signal?.aborted) throw new Error("Question was aborted");
           if (outcome.kind === "aborted") throw new Error("Question was aborted");
           if (outcome.kind === "cancelled") return resultPayload({ status: "cancelled" });
           const answer = request.grouped ? outcome.answers : outcome.answers[request.questions[0]!.id]!;
