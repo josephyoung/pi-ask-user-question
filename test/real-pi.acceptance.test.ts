@@ -29,6 +29,7 @@ let baseUrl = "";
 let scenario: Scenario | undefined;
 let lastToolResult = "";
 let lastToolResults: string[] = [];
+let toolResultBatches: string[][] = [];
 let lastToolDetails: unknown;
 let remoteAttempts = 0;
 let toolBatchIndex = 0;
@@ -88,6 +89,7 @@ const fixtureServer = createServer((request, response) => {
       if (latest?.role === "tool") {
         lastToolResults = [];
         for (let index = messages.length - 1; index >= 0 && messages[index]?.role === "tool"; index -= 1) lastToolResults.push(messages[index]?.content ?? "");
+        toolResultBatches.push([...lastToolResults]);
         lastToolResult = lastToolResults[0] ?? "";
         if (scenario?.nextTurnArgs && toolBatchIndex === 1) completion(response, { role: "assistant", content: "FIRST_DONE" }, "stop");
         else completion(response, { role: "assistant", content: `CONTINUED:${lastToolResults.join("|")}` }, "stop");
@@ -108,10 +110,19 @@ const fixtureServer = createServer((request, response) => {
       if (request.url!.includes("http-error") && remoteAttempts <= 1) { response.statusCode = 503; response.end("retry"); return; }
       if (request.url!.includes("invalid-json") && remoteAttempts <= 1) { response.end("not json"); return; }
       if (request.url!.includes("invalid-mapping") && remoteAttempts <= 1) { response.setHeader("content-type", "application/json"); response.end(JSON.stringify({ wrong: [] })); return; }
+      if (request.url!.includes("invalid-id") && remoteAttempts <= 1) { response.setHeader("content-type", "application/json"); response.end(JSON.stringify({ payload: { rows: [{ code: null, text: "Bad" }] } })); return; }
+      if (request.url!.includes("invalid-label") && remoteAttempts <= 1) { response.setHeader("content-type", "application/json"); response.end(JSON.stringify({ payload: { rows: [{ code: "bad", text: " " }] } })); return; }
       const parsedBody = body ? JSON.parse(body) as Record<string, unknown> : {};
       const url = new URL(request.url!, baseUrl);
       const query = url.searchParams.get("q") ?? (typeof parsedBody.q === "string" ? parsedBody.q : undefined);
       const page = url.searchParams.get("page") ?? parsedBody.page;
+      if (request.url!.includes("remote-total-later")) {
+        const pageTwo = page === "2" || page === 2;
+        const payload = pageTwo
+          ? { rows: [{ code: "three", text: "Three" }] }
+          : { rows: [{ code: "one", text: "One" }, { code: "two", text: "Two" }], total: 3 };
+        response.setHeader("content-type", "application/json"); response.end(JSON.stringify({ payload })); return;
+      }
       if (request.url!.includes("remote-total")) {
         response.setHeader("content-type", "application/json");
         response.end(JSON.stringify({ payload: { rows: [{ code: "one", text: "One" }, { code: "two", text: "Two" }], total: 2 } }));
@@ -131,6 +142,17 @@ const fixtureServer = createServer((request, response) => {
       }
       if (request.url!.includes("remote-numeric-label")) {
         response.setHeader("content-type", "application/json"); response.end(JSON.stringify({ payload: { rows: [{ code: 7, text: 700 }] } })); return;
+      }
+      if (request.url!.includes("remote-label-search")) {
+        const rows = [{ code: "same", text: query ? "New label" : "Old label" }];
+        response.setHeader("content-type", "application/json"); response.end(JSON.stringify({ payload: { rows, total: 1 } })); return;
+      }
+      if (request.url!.includes("remote-dedupe")) {
+        const pageTwo = page === "2" || page === 2;
+        const rows = pageTwo
+          ? [{ code: 0, text: "Numeric zero duplicate" }, { code: "new", text: "New" }]
+          : [{ code: 0, text: "Numeric zero" }, { code: "0", text: "String zero" }];
+        response.setHeader("content-type", "application/json"); response.end(JSON.stringify({ payload: { rows } })); return;
       }
       const text = page === "2" || page === 2 ? "Page two" : query ? "Search result" : "Alpha";
       const code = page === "2" || page === 2 ? "page-two" : query ? "search" : "alpha";
@@ -157,7 +179,7 @@ async function runAsync(command: string, args: string[], cwd: string, env: NodeJ
 }
 
 async function runPi(next: Scenario): Promise<string> {
-  scenario = next; lastToolResult = ""; lastToolResults = []; lastToolDetails = undefined; remoteAttempts = 0; toolBatchIndex = 0; requestLog.length = 0; remoteSeen.length = 0;
+  scenario = next; lastToolResult = ""; lastToolResults = []; toolResultBatches = []; lastToolDetails = undefined; remoteAttempts = 0; toolBatchIndex = 0; requestLog.length = 0; remoteSeen.length = 0;
   const args = ["--no-skills", "--no-context-files", "--approve", "--model", "acceptance/local", "--api-key", "test", "--thinking", "off", "--tools", "ask_user_question", "RUN ACCEPTANCE SCENARIO"];
   const env = Object.fromEntries(Object.entries({ ...process.env, PI_CODING_AGENT_DIR: state, NPM_CONFIG_CACHE: join(sandbox, "npm-cache"), TERM: "xterm-256color" }).filter((entry): entry is [string, string] => entry[1] !== undefined));
   const child = spawnPty(process.execPath, [realpathSync(piExecutable), ...args], { cwd: project, env, cols: 100, rows: 32 });
@@ -173,7 +195,7 @@ async function runPi(next: Scenario): Promise<string> {
     const newVisible = clean(output.slice(stepOffset));
     const step = steps[stepIndex];
     if (step && newVisible.includes(step.marker)) { stepIndex += 1; stepOffset = output.length; child.write(step.keys); }
-    if (!exiting && (visible.includes("CONTINUED:") || (next.abort && visible.includes("Question was aborted")))) { exiting = true; setTimeout(() => child.write("\u0004"), 25); }
+    if (!exiting && (visible.includes("CONTINUED:") || (next.abort && !next.nextTurnArgs && visible.includes("Question was aborted")))) { exiting = true; setTimeout(() => child.write("\u0004"), 25); }
   };
   child.onData(data => receive(Buffer.from(data)));
   const status = await new Promise<number | null>((resolvePromise, reject) => {
@@ -371,9 +393,23 @@ describe("real Pi CLI acceptance in isolated Git-installed environment", () => {
       "/remote-search?q=needle&page=2&limit=1",
     ]);
 
-    for (const [suffix, marker] of [["transport", "transport failed"], ["invalid-json", "invalid JSON"], ["invalid-mapping", "mapping failed"]] as const) {
-      const output = await runPi({ args: { question: `Retry ${suffix}`, inputType: "select", default: "alpha", dataSource: { type: "api", endpoint: `${baseUrl}/remote-${suffix}`, resultPath: "payload.rows", idField: "code", labelField: "text" } }, marker, keys: "r", followupMarker: "Alpha", followupKeys: "\r", expected: '"alpha"' });
+    const updatedLabel = await runPi({ args: { question: "Updated label", inputType: "select", default: "same", dataSource: {
+      ...searchSource, endpoint: `${baseUrl}/remote-label-search`, totalPath: "payload.total",
+    } }, steps: [
+      { marker: "Old label", keys: "s" }, { marker: "Search remote options", keys: "new" },
+      { marker: "new", keys: "\r" }, { marker: "New label", keys: "\r" },
+    ], expected: '"same"' });
+    expect(updatedLabel).toContain("Updated label: New label");
+
+    for (const [suffix, marker] of [["transport", "transport failed"], ["invalid-json", "invalid JSON"], ["invalid-mapping", "mapping failed"], ["invalid-id", "mapping failed"], ["invalid-label", "mapping failed"]] as const) {
+      const output = await runPi({ args: { questions: [
+        { id: "preserved", question: `Preserved ${suffix}`, default: "kept", required: true },
+        { id: "remote", question: `Retry ${suffix}`, inputType: "select", default: "alpha", dataSource: { type: "api", endpoint: `${baseUrl}/remote-${suffix}`, resultPath: "payload.rows", idField: "code", labelField: "text" } },
+      ] }, steps: [
+        { marker: `Preserved ${suffix}`, keys: "\r" }, { marker, keys: "r" }, { marker: "Alpha", keys: "\r\u0013" },
+      ], expected: '"preserved":"kept"' });
       expect(output).toContain(marker);
+      expect(lastToolResult).toContain('"remote":"alpha"');
     }
   }, 120_000);
 
@@ -409,6 +445,16 @@ describe("real Pi CLI acceptance in isolated Git-installed environment", () => {
     ], expected: '"three"' });
     expect(remoteSeen.map(item => item.url)).toEqual(["/remote-pages?page=1&limit=2", "/remote-pages?page=2&limit=2"]);
 
+    await runPi({ args: { question: "Known total continues", inputType: "select", default: "one", dataSource: { ...source("remote-total-later"), totalPath: "payload.total" } }, steps: [
+      { marker: "Showing 2 of 3", keys: "n" }, { marker: "Showing 3 of 3", keys: "n\r" },
+    ], expected: '"one"' });
+    expect(remoteSeen.map(item => item.url)).toEqual(["/remote-total-later?page=1&limit=2", "/remote-total-later?page=2&limit=2"]);
+
+    await runPi({ args: { question: "Typed dedupe", inputType: "select", default: 0, dataSource: source("remote-dedupe") }, steps: [
+      { marker: "String zero", keys: "n" }, { marker: "New", keys: "\u001b[B\u001b[B\r" },
+    ], expected: '"new"' });
+    expect(remoteSeen.map(item => item.url)).toEqual(["/remote-dedupe?page=1&limit=2", "/remote-dedupe?page=2&limit=2"]);
+
     const retry = await runPi({ args: { question: "Failed page", inputType: "select", default: "one", dataSource: source("remote-failed-page") }, steps: [
       { marker: "Two", keys: "n" },
       { marker: "HTTP 503", keys: "r" },
@@ -418,20 +464,26 @@ describe("real Pi CLI acceptance in isolated Git-installed environment", () => {
     expect(remoteSeen.map(item => item.url)).toEqual(["/remote-failed-page?page=1&limit=2", "/remote-failed-page?page=2&limit=2", "/remote-failed-page?page=2&limit=2"]);
   }, 120_000);
 
-  it("rejects a duplicate pending call in one Agent turn while the original Pi form remains answerable", async () => {
+  it("rejects a duplicate pending call, then releases submit and retry state for the next Agent turn", async () => {
     const output = await runPi({
       args: { question: "unused", default: "unused" },
       toolCalls: [
         { questions: [{ id: "first", question: "Original pending", default: "kept", required: true }] },
         { questions: [{ id: "second", question: "Duplicate pending", default: "retry", required: true }] },
       ],
-      marker: "Original pending",
-      keys: "\u0013",
+      nextTurnArgs: { questions: [{ id: "next", question: "After duplicate", default: "fresh", required: true }] },
+      steps: [
+        { marker: "Original pending", keys: "\u0013" },
+        { marker: "FIRST_DONE", keys: "RUN SECOND TURN\r" },
+        { marker: "After duplicate", keys: "\u0013" },
+      ],
+      expected: '"next":"fresh"',
     });
-    expect(lastToolResults.some(result => result.includes("exactly one native ask_user_question call"))).toBe(true);
-    expect(lastToolResults.some(result => result.includes('"first":"kept"'))).toBe(true);
+    expect(toolResultBatches[0]?.some(result => result.includes("exactly one native ask_user_question call"))).toBe(true);
+    expect(toolResultBatches[0]?.some(result => result.includes('"first":"kept"'))).toBe(true);
     expect(output).toContain("Original pending: kept");
     expect(output).toContain("exactly one native ask_user_question call");
+    expect(output).toContain("After duplicate: fresh");
   }, 120_000);
 
   it("releases cancelled form state and opens a fresh question in the next real Pi Agent turn", async () => {
@@ -448,5 +500,22 @@ describe("real Pi CLI acceptance in isolated Git-installed environment", () => {
     expect(lastToolDetails).toEqual({ status: "answered", answer: { second: "fresh" } });
     expect(output).toContain("FIRST_DONE");
     expect(output).toContain("Second turn: fresh");
+  }, 120_000);
+
+  it("releases aborted form state and opens a fresh question in the next real Pi Agent turn", async () => {
+    const output = await runPi({
+      args: { question: "First turn abort", inputType: "date", dateFormat: "yyyy-MM-dd", default: "2026-07-13" },
+      nextTurnArgs: { questions: [{ id: "second", question: "After abort", default: "fresh", required: true }] },
+      steps: [
+        { marker: "First turn abort", keys: "\u0003" },
+        { marker: "FIRST_DONE", keys: "RUN SECOND TURN\r" },
+        { marker: "After abort", keys: "\u0013" },
+      ],
+      expected: '"second":"fresh"',
+      abort: true,
+    });
+    expect(lastToolDetails).toEqual({ status: "answered", answer: { second: "fresh" } });
+    expect(toolResultBatches[0]?.some(result => result.includes("Question was aborted"))).toBe(true);
+    expect(output).toContain("After abort: fresh");
   }, 120_000);
 });

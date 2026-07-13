@@ -12,6 +12,8 @@ export type FormOutcome =
 
 const flatten = (items: OptionItem[], depth = 0): Array<OptionItem & { depth: number }> => items.flatMap(item => [{ ...item, depth }, ...flatten(item.children ?? [], depth + 1)]);
 const defaultText = (q: NormalizedQuestion) => typeof q.default === "string" ? q.default : "";
+const mergeUniqueOptions = (existing: OptionItem[], loaded: OptionItem[]) => [...existing, ...loaded]
+  .filter((option, position, all) => all.findIndex(candidate => typeof candidate.id === typeof option.id && candidate.id === option.id) === position);
 type RemoteAttempt = { search: string | undefined; page: number; append: boolean };
 type RemoteState = { search: string | undefined; page: number; total: number | undefined; hasMore: boolean; retry: RemoteAttempt | undefined };
 
@@ -101,16 +103,15 @@ export function createQuestionForm(
     try {
       const query = attempt.search === undefined ? { page: attempt.page } : { search: attempt.search, page: attempt.page };
       const loaded = await loadOptions(q.dataSource, request.dataSourceBaseUrl, query, signal);
-      q.options = attempt.append
-        ? [...(q.options ?? []), ...loaded.options].filter((option, position, all) => all.findIndex(candidate => typeof candidate.id === typeof option.id && candidate.id === option.id) === position)
+      q.options = attempt.append ? mergeUniqueOptions(q.options ?? [], loaded.options) : loaded.options;
+      q.presentationOptions = attempt.append
+        ? mergeUniqueOptions(q.presentationOptions ?? [], loaded.options)
         : loaded.options;
-      q.presentationOptions = [...(q.presentationOptions ?? []), ...loaded.options]
-        .filter((option, position, all) => all.findIndex(candidate => typeof candidate.id === typeof option.id && candidate.id === option.id) === position);
       state.search = attempt.search;
       state.page = attempt.page;
-      state.total = loaded.total;
-      state.hasMore = loaded.total !== undefined
-        ? q.options.length < loaded.total
+      state.total = attempt.append ? loaded.total ?? state.total : loaded.total;
+      state.hasMore = state.total !== undefined
+        ? q.options.length < state.total
         : loaded.options.length >= (q.dataSource.pageSize ?? 20);
       state.retry = undefined;
       if (!resolvedRemoteDefaults.has(q.id)) {

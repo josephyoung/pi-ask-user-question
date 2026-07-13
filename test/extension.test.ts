@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import { createTool } from "../src/index.js";
+import { normalizeRequest } from "../src/normalize.js";
+import { ResultPresentationStore } from "../src/presentation.js";
+
+const testTheme = { fg: (_name: string, text: string) => text, bg: (_name: string, text: string) => text, bold: (text: string) => text };
+const testTui = (withTerminal = false) => ({ requestRender: vi.fn(), ...(withTerminal ? { terminal: { rows: 24 } } : {}) });
 
 function context(overrides: Record<string, unknown> = {}) {
   return {
@@ -54,7 +59,7 @@ describe("extension public tool", () => {
       { id: "language", question: "Language", options: [{ id: "ts", label: "TypeScript" }, { id: "py", label: "Python" }], default: "ts" },
     ] };
     ctx.ui.custom = vi.fn(async (factory: any) => new Promise(resolve => {
-      const component = factory({ requestRender: vi.fn() }, { fg: (_name: string, text: string) => text, bg: (_name: string, text: string) => text, bold: (text: string) => text }, {}, resolve);
+      const component = factory(testTui(), testTheme, {}, resolve);
       component.handleInput("\u001b[B");
       component.handleInput("\r");
       component.handleInput("\u001b[B");
@@ -84,7 +89,7 @@ describe("extension public tool", () => {
     ctx.ui.custom = vi.fn(async (factory: any) => {
       let finish!: (outcome: unknown) => void;
       const outcome = new Promise(resolve => { finish = resolve; });
-      const component = factory({ requestRender: vi.fn() }, { fg: (_name: string, text: string) => text, bg: (_name: string, text: string) => text, bold: (text: string) => text }, {}, finish);
+      const component = factory(testTui(), testTheme, {}, finish);
       await vi.waitFor(() => expect(component.render(80).join("\n")).toContain("Remote seven"));
       component.handleInput("\r");
       return outcome;
@@ -104,6 +109,16 @@ describe("extension public tool", () => {
     }
   });
 
+  it("bounds remembered presentation requests when the host never renders results", () => {
+    const store = new ResultPresentationStore(2);
+    store.remember("one", normalizeRequest({ question: "One", default: "one" }));
+    store.remember("two", normalizeRequest({ question: "Two", default: "two" }));
+    store.remember("three", normalizeRequest({ question: "Three", default: "three" }));
+
+    expect((store as any).requests.size).toBe(2);
+    expect((store as any).requests.has("one")).toBe(false);
+  });
+
   it("collects a custom answer after selecting Other without constructing custom UI", async () => {
     const ctx = context(); ctx.ui.select.mockResolvedValue("Other"); ctx.ui.input.mockResolvedValue("custom");
     const result = await createTool().execute("other", { question: "Pick", options: ["Known", "Other"], default: "Known" }, undefined, undefined, ctx);
@@ -117,8 +132,8 @@ describe("extension public tool", () => {
   });
 
   it("submits grouped defaults atomically and disposes custom UI exactly once", async () => {
-    const fakeTui = { requestRender: vi.fn(), terminal: { rows: 24 } };
-    const theme = { fg: (_name: string, text: string) => text, bg: (_name: string, text: string) => text, bold: (text: string) => text };
+    const fakeTui = testTui(true);
+    const theme = testTheme;
     const custom = vi.fn(async (factory: any) => new Promise(resolve => {
       const component = factory(fakeTui, theme, {}, (outcome: any) => { expect(outcome.disposeCount).toBe(1); resolve(outcome); });
       component.handleInput("\u0013");
@@ -134,8 +149,8 @@ describe("extension public tool", () => {
   });
 
   it("opens a grouped single choice on its canonical recommended default", async () => {
-    const fakeTui = { requestRender: vi.fn() };
-    const theme = { fg: (_name: string, text: string) => text, bg: (_name: string, text: string) => text, bold: (text: string) => text };
+    const fakeTui = testTui();
+    const theme = testTheme;
     const custom = vi.fn(async (factory: any) => new Promise(resolve => {
       const component = factory(fakeTui, theme, {}, resolve);
       expect(component.render(80)).toContain(">  Recommended");
@@ -155,8 +170,8 @@ describe("extension public tool", () => {
   });
 
   it("lets an optional grouped select clear its recommendation and omits the answer", async () => {
-    const fakeTui = { requestRender: vi.fn() };
-    const theme = { fg: (_name: string, text: string) => text, bg: (_name: string, text: string) => text, bold: (text: string) => text };
+    const fakeTui = testTui();
+    const theme = testTheme;
     const custom = vi.fn(async (factory: any) => new Promise(resolve => {
       const component = factory(fakeTui, theme, {}, resolve);
       expect(component.render(80).join("\n")).toContain("Delete clear");
@@ -178,8 +193,8 @@ describe("extension public tool", () => {
   });
 
   it("shows hierarchy only for treeSelect question forms", async () => {
-    const fakeTui = { requestRender: vi.fn() };
-    const theme = { fg: (_name: string, text: string) => text, bg: (_name: string, text: string) => text, bold: (text: string) => text };
+    const fakeTui = testTui();
+    const theme = testTheme;
     const rendered: string[] = [];
     const ctx = context();
     ctx.ui.custom = vi.fn(async (factory: any) => new Promise(resolve => {
@@ -198,8 +213,8 @@ describe("extension public tool", () => {
   });
 
   it("attaches grouped validation errors to the failing question and preserves other answers", async () => {
-    const fakeTui = { requestRender: vi.fn(), terminal: { rows: 24 } };
-    const theme = { fg: (_name: string, text: string) => text, bg: (_name: string, text: string) => text, bold: (text: string) => text };
+    const fakeTui = testTui(true);
+    const theme = testTheme;
     const ctx = context();
     ctx.ui.custom = vi.fn(async (factory: any) => new Promise(resolve => {
       const component = factory(fakeTui, theme, {}, resolve);
@@ -220,8 +235,8 @@ describe("extension public tool", () => {
   });
 
   it("distinguishes custom cancellation from abort", async () => {
-    const fakeTui = { requestRender: vi.fn() };
-    const theme = { fg: (_name: string, text: string) => text, bg: (_name: string, text: string) => text, bold: (text: string) => text };
+    const fakeTui = testTui();
+    const theme = testTheme;
     const make = (key: string) => vi.fn(async (factory: any) => new Promise(resolve => factory(fakeTui, theme, {}, (outcome: any) => {
       expect(outcome.disposeCount).toBe(1);
       resolve(outcome);
@@ -232,7 +247,7 @@ describe("extension public tool", () => {
     await expect(createTool().execute("abort", { question: "Date", inputType: "date", dateFormat: "yyyy-MM-dd", default: "2026-07-13" }, undefined, undefined, aborted)).rejects.toThrow("Question was aborted");
   });
 
-  it("releases Agent-turn pending state after an unexpected UI failure", async () => {
+  it("releases Agent-turn pending state after an unexpected host UI failure at the component seam", async () => {
     const tool = createTool();
     const controller = new AbortController();
     const failed = context();
@@ -246,8 +261,8 @@ describe("extension public tool", () => {
   });
 
   it("rejects a second pending call in one Agent turn without settling the original form", async () => {
-    const fakeTui = { requestRender: vi.fn() };
-    const theme = { fg: (_name: string, text: string) => text, bg: (_name: string, text: string) => text, bold: (text: string) => text };
+    const fakeTui = testTui();
+    const theme = testTheme;
     let answerFirst: ((outcome: unknown) => void) | undefined;
     const ctx = context();
     ctx.ui.custom = vi.fn(async (factory: any) => new Promise(resolve => {
@@ -269,8 +284,8 @@ describe("extension public tool", () => {
   });
 
   it("allows pending question forms from different Agent-turn signals", async () => {
-    const fakeTui = { requestRender: vi.fn() };
-    const theme = { fg: (_name: string, text: string) => text, bg: (_name: string, text: string) => text, bold: (text: string) => text };
+    const fakeTui = testTui();
+    const theme = testTheme;
     const complete: Array<(outcome: unknown) => void> = [];
     const ctx = context();
     ctx.ui.custom = vi.fn(async (factory: any) => new Promise(resolve => {
@@ -294,8 +309,8 @@ describe("extension public tool", () => {
       { id: "one", label: "One" }, { id: "two", label: "Two" },
     ], total: 2 }), { status: 200, headers: { "content-type": "application/json" } }));
     vi.stubGlobal("fetch", fetch);
-    const fakeTui = { requestRender: vi.fn() };
-    const theme = { fg: (_name: string, text: string) => text, bg: (_name: string, text: string) => text, bold: (text: string) => text };
+    const fakeTui = testTui();
+    const theme = testTheme;
     const ctx = context();
     ctx.ui.custom = vi.fn(async (factory: any) => {
       let finish!: (outcome: unknown) => void;
@@ -333,8 +348,8 @@ describe("extension public tool", () => {
       return new Response(JSON.stringify({ rows }), { status: 200, headers: { "content-type": "application/json" } });
     });
     vi.stubGlobal("fetch", fetch);
-    const fakeTui = { requestRender: vi.fn() };
-    const theme = { fg: (_name: string, text: string) => text, bg: (_name: string, text: string) => text, bold: (text: string) => text };
+    const fakeTui = testTui();
+    const theme = testTheme;
     const ctx = context();
     ctx.ui.custom = vi.fn(async (factory: any) => {
       let finish!: (outcome: unknown) => void;
@@ -362,6 +377,43 @@ describe("extension public tool", () => {
     }
   });
 
+  it("keeps a known remote total when an appended page omits it", async () => {
+    const originalFetch = globalThis.fetch;
+    const fetch = vi.fn(async (input: string | URL | Request) => {
+      const page = new URL(String(input)).searchParams.get("page");
+      const payload = page === "2"
+        ? { rows: [{ id: "three", label: "Three" }] }
+        : { rows: [{ id: "one", label: "One" }, { id: "two", label: "Two" }], total: 3 };
+      return new Response(JSON.stringify(payload), { status: 200, headers: { "content-type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetch);
+    const fakeTui = testTui();
+    const theme = testTheme;
+    const ctx = context();
+    ctx.ui.custom = vi.fn(async (factory: any) => {
+      let finish!: (outcome: unknown) => void;
+      const outcome = new Promise(resolve => { finish = resolve; });
+      const component = factory(fakeTui, theme, {}, finish);
+      await vi.waitFor(() => expect(component.render(80).join("\n")).toContain("Showing 2 of 3"));
+      component.handleInput("n");
+      await vi.waitFor(() => expect(component.render(80).join("\n")).toContain("Showing 3 of 3"));
+      component.handleInput("n");
+      await new Promise(done => setTimeout(done, 0));
+      expect(fetch).toHaveBeenCalledTimes(2);
+      component.handleInput("\u001b");
+      return outcome;
+    });
+
+    try {
+      await createTool().execute("remote-known-total", { questions: [{
+        id: "remote", question: "Remote", inputType: "select", default: "one",
+        dataSource: { type: "api", endpoint: "https://example.test/options", pageParam: "page", pageSizeParam: "limit", pageSize: 2, resultPath: "rows", totalPath: "total" },
+      }] }, undefined, undefined, ctx);
+    } finally {
+      vi.stubGlobal("fetch", originalFetch);
+    }
+  });
+
   it("retries the failed page and resets pagination for a new remote search without losing the answer", async () => {
     const originalFetch = globalThis.fetch;
     const seen: URL[] = [];
@@ -378,8 +430,8 @@ describe("extension public tool", () => {
       return new Response(JSON.stringify({ rows }), { status: 200, headers: { "content-type": "application/json" } });
     });
     vi.stubGlobal("fetch", fetch);
-    const fakeTui = { requestRender: vi.fn(), terminal: { rows: 24 } };
-    const theme = { fg: (_name: string, text: string) => text, bg: (_name: string, text: string) => text, bold: (text: string) => text };
+    const fakeTui = testTui(true);
+    const theme = testTheme;
     const ctx = context();
     ctx.ui.custom = vi.fn(async (factory: any) => {
       let finish!: (outcome: unknown) => void;
