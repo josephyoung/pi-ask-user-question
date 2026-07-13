@@ -1,6 +1,6 @@
 {
-  "name": "@josephyoung/pi-ask-user-qusetion",
-  "version": "0.1.2",
+  "name": "@josephyoung/pi-ask-user-question",
+  "version": "0.1.3",
   "description": "Native ask_user_question extension for Pi Coding Agent",
   "type": "module",
   "keywords": [
