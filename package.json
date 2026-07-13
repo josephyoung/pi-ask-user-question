@@ -1,0 +1,46 @@
+{
+  "name": "pi-ask-user-question",
+  "version": "0.1.0",
+  "description": "Native ask_user_question extension for Pi Coding Agent",
+  "type": "module",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "human-in-the-loop"
+  ],
+  "license": "MIT",
+  "files": [
+    "src",
+    "README.md",
+    "CONTEXT.md",
+    "docs"
+  ],
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:unit": "vitest run test/contract.test.ts test/normalize.test.ts test/data-source.test.ts test/extension.test.ts",
+    "test:acceptance": "vitest run test/real-pi.acceptance.test.ts"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.80.2",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "0.80.6",
+    "@earendil-works/pi-tui": "0.80.6",
+    "@types/node": "^22.15.0",
+    "node-pty": "^1.0.0",
+    "typebox": "^1.0.34",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
+  },
+  "dependencies": {
+    "date-fns": "^4.4.0"
+  }
+}

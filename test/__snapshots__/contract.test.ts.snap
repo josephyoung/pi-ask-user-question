@@ -1,0 +1,753 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`canonical model-facing contract > serializes the frozen Dano contract plus the approved request-context additions 1`] = `
+{
+  "description": "Ask the user for structured input during execution.
+
+When the user asks to fill in a form, complete a form, or provide form fields, use ask_user_question to collect the fields instead of asking in assistant text. Every non-confirmation question must include a context-based recommended default so the user can usually submit directly. String defaults must be non-empty; never use default:"". required:true controls whether the user may submit an empty answer.
+
+Use exactly one ask_user_question call per assistant response. If you need more than one answer, use only the questions array: {"questions":[{"id":"leave_type","question":"请假类型？","options":["事假",{"id":"sick","label":"病假"}],"default":"事假","required":true},{"id":"start_at","question":"开始时间？","inputType":"date","dateFormat":"yyyy-MM-dd HH:mm","default":"2026-07-08 09:00","required":true},{"id":"reason","question":"原因？","default":"个人事务","required":true}]}. When questions is present, put every field's options, inputType, dateFormat, required, dataSource, multiple, and default inside the matching questions[] item; do not include top-level confirm or top-level field configuration.
+
+For a single question, use top-level question/options/inputType/dateFormat/required/dataSource/multiple/default/confirm. For multiple questions, use questions[]. Dates require inputType:"date" plus dateFormat, for example "yyyy-MM-dd" or "yyyy-MM-dd HH:mm"; Dano returns the user's submitted date value as-is. required defaults to false; set required:true when an empty answer must not be submitted. default is still required for non-confirmation questions whether required is true or false, and string defaults must be non-empty. Use inputType:"select" or inputType:"treeSelect" with dataSource for remote API-backed choices. Confirmation is a separate single-question call with question + confirm: true and no options/multiple/questions. The answer is returned as a tool result and execution then continues.",
+  "name": "ask_user_question",
+  "parameters": {
+    "properties": {
+      "choices": {
+        "items": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string",
+            },
+            {
+              "properties": {
+                "extra": {
+                  "patternProperties": {
+                    "^.*$": {},
+                  },
+                  "type": "object",
+                },
+                "id": {
+                  "anyOf": [
+                    {
+                      "minLength": 1,
+                      "type": "string",
+                    },
+                    {
+                      "type": "number",
+                    },
+                  ],
+                },
+                "label": {
+                  "minLength": 1,
+                  "type": "string",
+                },
+              },
+              "required": [
+                "id",
+                "label",
+              ],
+              "type": "object",
+            },
+          ],
+        },
+        "minItems": 2,
+        "type": "array",
+      },
+      "component": {
+        "minLength": 1,
+        "type": "string",
+      },
+      "confirm": {
+        "const": true,
+        "description": "Set true without options to ask for confirmation.",
+        "type": "boolean",
+      },
+      "dataSource": {
+        "properties": {
+          "childrenField": {
+            "minLength": 1,
+            "type": "string",
+          },
+          "cookies": {
+            "patternProperties": {
+              "^.*$": {
+                "type": "string",
+              },
+            },
+            "type": "object",
+          },
+          "endpoint": {
+            "minLength": 1,
+            "type": "string",
+          },
+          "extraFields": {
+            "items": {
+              "minLength": 1,
+              "type": "string",
+            },
+            "type": "array",
+          },
+          "headers": {
+            "patternProperties": {
+              "^.*$": {
+                "type": "string",
+              },
+            },
+            "type": "object",
+          },
+          "idField": {
+            "minLength": 1,
+            "type": "string",
+          },
+          "labelField": {
+            "minLength": 1,
+            "type": "string",
+          },
+          "method": {
+            "anyOf": [
+              {
+                "const": "GET",
+                "type": "string",
+              },
+              {
+                "const": "POST",
+                "type": "string",
+              },
+            ],
+          },
+          "pageParam": {
+            "minLength": 1,
+            "type": "string",
+          },
+          "pageSize": {
+            "minimum": 1,
+            "type": "number",
+          },
+          "pageSizeParam": {
+            "minLength": 1,
+            "type": "string",
+          },
+          "params": {
+            "patternProperties": {
+              "^.*$": {},
+            },
+            "type": "object",
+          },
+          "resultPath": {
+            "minLength": 1,
+            "type": "string",
+          },
+          "searchParam": {
+            "minLength": 1,
+            "type": "string",
+          },
+          "totalPath": {
+            "minLength": 1,
+            "type": "string",
+          },
+          "type": {
+            "const": "api",
+            "type": "string",
+          },
+        },
+        "required": [
+          "type",
+          "endpoint",
+        ],
+        "type": "object",
+      },
+      "dataSourceBaseUrl": {
+        "description": "Base URL used to resolve relative dataSource.endpoint values.",
+        "minLength": 1,
+        "type": "string",
+      },
+      "data_source": {
+        "properties": {
+          "childrenField": {
+            "minLength": 1,
+            "type": "string",
+          },
+          "cookies": {
+            "patternProperties": {
+              "^.*$": {
+                "type": "string",
+              },
+            },
+            "type": "object",
+          },
+          "endpoint": {
+            "minLength": 1,
+            "type": "string",
+          },
+          "extraFields": {
+            "items": {
+              "minLength": 1,
+              "type": "string",
+            },
+            "type": "array",
+          },
+          "headers": {
+            "patternProperties": {
+              "^.*$": {
+                "type": "string",
+              },
+            },
+            "type": "object",
+          },
+          "idField": {
+            "minLength": 1,
+            "type": "string",
+          },
+          "labelField": {
+            "minLength": 1,
+            "type": "string",
+          },
+          "method": {
+            "anyOf": [
+              {
+                "const": "GET",
+                "type": "string",
+              },
+              {
+                "const": "POST",
+                "type": "string",
+              },
+            ],
+          },
+          "pageParam": {
+            "minLength": 1,
+            "type": "string",
+          },
+          "pageSize": {
+            "minimum": 1,
+            "type": "number",
+          },
+          "pageSizeParam": {
+            "minLength": 1,
+            "type": "string",
+          },
+          "params": {
+            "patternProperties": {
+              "^.*$": {},
+            },
+            "type": "object",
+          },
+          "resultPath": {
+            "minLength": 1,
+            "type": "string",
+          },
+          "searchParam": {
+            "minLength": 1,
+            "type": "string",
+          },
+          "totalPath": {
+            "minLength": 1,
+            "type": "string",
+          },
+          "type": {
+            "const": "api",
+            "type": "string",
+          },
+        },
+        "required": [
+          "type",
+          "endpoint",
+        ],
+        "type": "object",
+      },
+      "dateFormat": {
+        "description": "Required when inputType is "date". A frontend date-control format such as "yyyy-MM-dd" or "yyyy-MM-dd HH:mm".",
+        "minLength": 1,
+        "type": "string",
+      },
+      "default": {
+        "anyOf": [
+          {
+            "type": "string",
+          },
+          {
+            "type": "number",
+          },
+          {
+            "properties": {
+              "extra": {
+                "patternProperties": {
+                  "^.*$": {},
+                },
+                "type": "object",
+              },
+              "id": {
+                "anyOf": [
+                  {
+                    "minLength": 1,
+                    "type": "string",
+                  },
+                  {
+                    "type": "number",
+                  },
+                ],
+              },
+              "label": {
+                "minLength": 1,
+                "type": "string",
+              },
+            },
+            "required": [
+              "id",
+              "label",
+            ],
+            "type": "object",
+          },
+          {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string",
+                },
+                {
+                  "type": "number",
+                },
+                {
+                  "properties": {
+                    "extra": {
+                      "patternProperties": {
+                        "^.*$": {},
+                      },
+                      "type": "object",
+                    },
+                    "id": {
+                      "anyOf": [
+                        {
+                          "minLength": 1,
+                          "type": "string",
+                        },
+                        {
+                          "type": "number",
+                        },
+                      ],
+                    },
+                    "label": {
+                      "minLength": 1,
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "id",
+                    "label",
+                  ],
+                  "type": "object",
+                },
+              ],
+            },
+            "type": "array",
+          },
+          {
+            "type": "boolean",
+          },
+        ],
+        "description": "Required for every non-confirmation question. Provide a context-based recommended default value. String defaults must be non-empty and must not be placeholders such as "".",
+      },
+      "defaultValue": {
+        "anyOf": [
+          {
+            "type": "string",
+          },
+          {
+            "type": "number",
+          },
+          {
+            "properties": {
+              "extra": {
+                "patternProperties": {
+                  "^.*$": {},
+                },
+                "type": "object",
+              },
+              "id": {
+                "anyOf": [
+                  {
+                    "minLength": 1,
+                    "type": "string",
+                  },
+                  {
+                    "type": "number",
+                  },
+                ],
+              },
+              "label": {
+                "minLength": 1,
+                "type": "string",
+              },
+            },
+            "required": [
+              "id",
+              "label",
+            ],
+            "type": "object",
+          },
+          {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string",
+                },
+                {
+                  "type": "number",
+                },
+                {
+                  "properties": {
+                    "extra": {
+                      "patternProperties": {
+                        "^.*$": {},
+                      },
+                      "type": "object",
+                    },
+                    "id": {
+                      "anyOf": [
+                        {
+                          "minLength": 1,
+                          "type": "string",
+                        },
+                        {
+                          "type": "number",
+                        },
+                      ],
+                    },
+                    "label": {
+                      "minLength": 1,
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "id",
+                    "label",
+                  ],
+                  "type": "object",
+                },
+              ],
+            },
+            "type": "array",
+          },
+          {
+            "type": "boolean",
+          },
+        ],
+        "description": "Required for every non-confirmation question. Provide a context-based recommended default value. String defaults must be non-empty and must not be placeholders such as "".",
+      },
+      "inputType": {
+        "anyOf": [
+          {
+            "const": "text",
+            "type": "string",
+          },
+          {
+            "const": "textarea",
+            "type": "string",
+          },
+          {
+            "const": "date",
+            "type": "string",
+          },
+          {
+            "const": "radio",
+            "type": "string",
+          },
+          {
+            "const": "checkbox",
+            "type": "string",
+          },
+          {
+            "const": "select",
+            "type": "string",
+          },
+          {
+            "const": "treeSelect",
+            "type": "string",
+          },
+          {
+            "const": "confirm",
+            "type": "string",
+          },
+        ],
+      },
+      "input_type": {
+        "minLength": 1,
+        "type": "string",
+      },
+      "label": {
+        "minLength": 1,
+        "type": "string",
+      },
+      "multi": {
+        "type": "boolean",
+      },
+      "multiple": {
+        "default": false,
+        "description": "Set true with options to allow multiple selections.",
+        "type": "boolean",
+      },
+      "multipleSelect": {
+        "type": "boolean",
+      },
+      "options": {
+        "description": "Choices for this question. Strings remain supported; objects use stable id plus label. Include '其他' or 'Other' to let the user enter one custom answer. Omit for free-text, confirmation, or remote dataSource input.",
+        "items": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string",
+            },
+            {
+              "properties": {
+                "extra": {
+                  "patternProperties": {
+                    "^.*$": {},
+                  },
+                  "type": "object",
+                },
+                "id": {
+                  "anyOf": [
+                    {
+                      "minLength": 1,
+                      "type": "string",
+                    },
+                    {
+                      "type": "number",
+                    },
+                  ],
+                },
+                "label": {
+                  "minLength": 1,
+                  "type": "string",
+                },
+              },
+              "required": [
+                "id",
+                "label",
+              ],
+              "type": "object",
+            },
+          ],
+        },
+        "minItems": 2,
+        "type": "array",
+      },
+      "prefill": {
+        "anyOf": [
+          {
+            "type": "string",
+          },
+          {
+            "type": "number",
+          },
+          {
+            "properties": {
+              "extra": {
+                "patternProperties": {
+                  "^.*$": {},
+                },
+                "type": "object",
+              },
+              "id": {
+                "anyOf": [
+                  {
+                    "minLength": 1,
+                    "type": "string",
+                  },
+                  {
+                    "type": "number",
+                  },
+                ],
+              },
+              "label": {
+                "minLength": 1,
+                "type": "string",
+              },
+            },
+            "required": [
+              "id",
+              "label",
+            ],
+            "type": "object",
+          },
+          {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string",
+                },
+                {
+                  "type": "number",
+                },
+                {
+                  "properties": {
+                    "extra": {
+                      "patternProperties": {
+                        "^.*$": {},
+                      },
+                      "type": "object",
+                    },
+                    "id": {
+                      "anyOf": [
+                        {
+                          "minLength": 1,
+                          "type": "string",
+                        },
+                        {
+                          "type": "number",
+                        },
+                      ],
+                    },
+                    "label": {
+                      "minLength": 1,
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "id",
+                    "label",
+                  ],
+                  "type": "object",
+                },
+              ],
+            },
+            "type": "array",
+          },
+          {
+            "type": "boolean",
+          },
+        ],
+        "description": "Required for every non-confirmation question. Provide a context-based recommended default value. String defaults must be non-empty and must not be placeholders such as "".",
+      },
+      "prompt": {
+        "minLength": 1,
+        "type": "string",
+      },
+      "question": {
+        "description": "Single-question call: the clear, specific question to ask the user. With questions[], top-level question/title/label/prompt is treated only as optional form instruction text; each actual field question must be inside questions[].",
+        "minLength": 1,
+        "type": "string",
+      },
+      "questions": {
+        "description": "Preferred for collecting more than one answer. Make exactly one ask_user_question call with questions: [{ id, question, default, options?, multiple?, inputType?, dateFormat?, required?, dataSource? }, ...]. Every non-confirmation questions[] item must include a context-based, non-empty default. A single question object is also accepted and normalized to an array. When questions is present, put each field's options, inputType, dateFormat, required, dataSource, multiple, and default inside its questions[] item. Do not include top-level confirm or top-level field configuration with questions.",
+      },
+      "required": {
+        "description": "Set true to require a non-empty answer. Defaults to false.",
+        "type": "boolean",
+      },
+      "title": {
+        "minLength": 1,
+        "type": "string",
+      },
+      "type": {
+        "minLength": 1,
+        "type": "string",
+      },
+      "value": {
+        "anyOf": [
+          {
+            "type": "string",
+          },
+          {
+            "type": "number",
+          },
+          {
+            "properties": {
+              "extra": {
+                "patternProperties": {
+                  "^.*$": {},
+                },
+                "type": "object",
+              },
+              "id": {
+                "anyOf": [
+                  {
+                    "minLength": 1,
+                    "type": "string",
+                  },
+                  {
+                    "type": "number",
+                  },
+                ],
+              },
+              "label": {
+                "minLength": 1,
+                "type": "string",
+              },
+            },
+            "required": [
+              "id",
+              "label",
+            ],
+            "type": "object",
+          },
+          {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string",
+                },
+                {
+                  "type": "number",
+                },
+                {
+                  "properties": {
+                    "extra": {
+                      "patternProperties": {
+                        "^.*$": {},
+                      },
+                      "type": "object",
+                    },
+                    "id": {
+                      "anyOf": [
+                        {
+                          "minLength": 1,
+                          "type": "string",
+                        },
+                        {
+                          "type": "number",
+                        },
+                      ],
+                    },
+                    "label": {
+                      "minLength": 1,
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "id",
+                    "label",
+                  ],
+                  "type": "object",
+                },
+              ],
+            },
+            "type": "array",
+          },
+          {
+            "type": "boolean",
+          },
+        ],
+        "description": "Required for every non-confirmation question. Provide a context-based recommended default value. String defaults must be non-empty and must not be placeholders such as "".",
+      },
+    },
+    "type": "object",
+  },
+  "promptGuidelines": [
+    "Use ask_user_question whenever you need user input to continue; do not ask the question only in assistant text.",
+    "When the user asks to fill in a form, complete a form, or provide form fields, collect the fields with ask_user_question.",
+    "Call ask_user_question at most once per assistant response. If you need several answers, put every item in one questions array.",
+    "If the user cancels ask_user_question, stop the current workflow. Do not ask again or retry unless the user sends a new message explicitly requesting it.",
+    "Invoke ask_user_question as a native tool call. Never print, describe, or wrap a tool call in <question> tags, XML, JSON, Markdown, or other assistant text.",
+    "If ask_user_question returns a validation error, retry silently with a corrected native tool call; do not explain the correction to the user.",
+    "Give every non-confirmation question a context-based recommended non-empty default. Do not use empty string or placeholder defaults.",
+    "Set required:true only when an answer is mandatory. required defaults to false.",
+    "For date fields, use inputType:"date" and provide dateFormat such as "yyyy-MM-dd" or "yyyy-MM-dd HH:mm". The dateFormat configures the frontend date control display and submitted output.",
+    "Dano returns the user's date answer as submitted; convert it yourself if a downstream interface needs another business format.",
+    "When using questions, put each field's id, question, options, inputType, dateFormat, required, dataSource, multiple, and default inside its questions item. Do not put top-level field configuration beside questions.",
+    "For forms, applications, or other user-reviewed summaries, call ask_user_question with confirm: true after presenting the final summary and before treating it as confirmed, ready to submit, or complete.",
+  ],
+  "promptSnippet": "Ask the user one native question card; for several fields use one questions array with one submit button",
+}
+`;
