@@ -71,14 +71,16 @@ function completion(response: import("node:http").ServerResponse, body: Record<s
   response.end("data: [DONE]\n\n");
 }
 
-const fixtureServer = createServer((request, response) => {
-  requestLog.push(`${request.method} ${request.url}`);
-  if (request.url?.startsWith("/local/repo.git/")) {
-    const pathname = new URL(request.url, "http://fixture").pathname;
-    const path = normalize(join(barePath, decodeURIComponent(pathname.slice("/local/repo.git/".length))));
-    if (!path.startsWith(barePath) || !existsSync(path)) { response.statusCode = 404; response.end("missing"); return; }
-    response.setHeader("content-type", "application/octet-stream"); response.end(readFileSync(path)); return;
-  }
+function serveGitFixture(request: import("node:http").IncomingMessage, response: import("node:http").ServerResponse): boolean {
+  if (!request.url?.startsWith("/local/repo.git/")) return false;
+  const pathname = new URL(request.url, "http://fixture").pathname;
+  const path = normalize(join(barePath, decodeURIComponent(pathname.slice("/local/repo.git/".length))));
+  if (!path.startsWith(barePath) || !existsSync(path)) { response.statusCode = 404; response.end("missing"); return true; }
+  response.setHeader("content-type", "application/octet-stream"); response.end(readFileSync(path));
+  return true;
+}
+
+function serveChatCompletion(request: import("node:http").IncomingMessage, response: import("node:http").ServerResponse): boolean {
   if (request.url === "/v1/chat/completions" && request.method === "POST") {
     let raw = "";
     request.on("data", part => { raw += String(part); });
@@ -100,11 +102,15 @@ const fixtureServer = createServer((request, response) => {
       toolBatchIndex += 1;
       completion(response, { role: "assistant", content: null, tool_calls: calls.map((args, index) => ({ index, id: `call_acceptance_${toolBatchIndex}_${index}`, type: "function", function: { name: "ask_user_question", arguments: JSON.stringify(args) } })) }, "tool_calls");
     });
-    return;
+    return true;
   }
+  return false;
+}
+
+function serveRemoteOptions(request: import("node:http").IncomingMessage, response: import("node:http").ServerResponse): boolean {
   if (request.url?.startsWith("/remote")) {
     remoteAttempts += 1;
-    if (request.url.includes("transport") && remoteAttempts <= 1) { request.socket.destroy(); return; }
+    if (request.url.includes("transport") && remoteAttempts <= 1) { request.socket.destroy(); return true; }
     let body = ""; request.on("data", part => { body += String(part); }); request.on("end", () => {
       remoteSeen.push({ method: request.method, url: request.url, headers: request.headers, body });
       if (request.url!.includes("http-error") && remoteAttempts <= 1) { response.statusCode = 503; response.end("retry"); return; }
@@ -147,6 +153,17 @@ const fixtureServer = createServer((request, response) => {
         const rows = [{ code: "same", text: query ? "New label" : "Old label" }];
         response.setHeader("content-type", "application/json"); response.end(JSON.stringify({ payload: { rows, total: 1 } })); return;
       }
+      if (request.url!.includes("remote-label-omits")) {
+        const rows = [{ code: query ? "other" : "kept", text: query ? "Other label" : "Kept label" }];
+        response.setHeader("content-type", "application/json"); response.end(JSON.stringify({ payload: { rows, total: 1 } })); return;
+      }
+      if (request.url!.includes("remote-delayed")) {
+        setTimeout(() => {
+          response.setHeader("content-type", "application/json");
+          response.end(JSON.stringify({ payload: { rows: [{ code: "alpha", text: "Alpha" }] } }));
+        }, 150);
+        return;
+      }
       if (request.url!.includes("remote-dedupe")) {
         const pageTwo = page === "2" || page === 2;
         const rows = pageTwo
@@ -159,8 +176,14 @@ const fixtureServer = createServer((request, response) => {
       response.setHeader("content-type", "application/json");
       response.end(JSON.stringify({ payload: { rows: [{ code, text, nodes: [{ code: "child", text: "Child" }], meta: "kept" }], total: 1 } }));
     });
-    return;
+    return true;
   }
+  return false;
+}
+
+const fixtureServer = createServer((request, response) => {
+  requestLog.push(`${request.method} ${request.url}`);
+  if (serveGitFixture(request, response) || serveChatCompletion(request, response) || serveRemoteOptions(request, response)) return;
   response.statusCode = 404; response.end("missing");
 });
 
@@ -401,6 +424,14 @@ describe("real Pi CLI acceptance in isolated Git-installed environment", () => {
     ], expected: '"same"' });
     expect(updatedLabel).toContain("Updated label: New label");
 
+    const preservedLabel = await runPi({ args: { question: "Preserved label", inputType: "select", default: "kept", dataSource: {
+      ...searchSource, endpoint: `${baseUrl}/remote-label-omits`, totalPath: "payload.total",
+    } }, steps: [
+      { marker: "Kept label", keys: "s" }, { marker: "Search remote options", keys: "other" },
+      { marker: "other", keys: "\r" }, { marker: "Other label", keys: "\u0013" },
+    ], expected: '"kept"' });
+    expect(preservedLabel).toContain("Preserved label: Kept label");
+
     for (const [suffix, marker] of [["transport", "transport failed"], ["invalid-json", "invalid JSON"], ["invalid-mapping", "mapping failed"], ["invalid-id", "mapping failed"], ["invalid-label", "mapping failed"]] as const) {
       const output = await runPi({ args: { questions: [
         { id: "preserved", question: `Preserved ${suffix}`, default: "kept", required: true },
@@ -419,6 +450,15 @@ describe("real Pi CLI acceptance in isolated Git-installed environment", () => {
     } }, marker: "700", keys: "\r", expected: "7" });
     expect(lastToolDetails).toEqual({ status: "answered", answer: 7 });
     expect(numeric).toContain("Numeric label: 700");
+
+    const hiddenChild = await runPi({ args: {
+      question: "Hidden child", inputType: "select", default: "child",
+      options: [
+        { id: "root", label: "Root", children: [{ id: "child", label: "Child" }] },
+        { id: "other-root", label: "Other root" },
+      ],
+    }, expected: "答案必须匹配一个可选项" });
+    expect(hiddenChild).not.toContain("Hidden child ·");
 
     const flat = await runPi({ args: { question: "Flat remote", inputType: "select", default: "alpha", dataSource: {
       type: "api", endpoint: `${baseUrl}/remote`, resultPath: "payload.rows", idField: "code", labelField: "text", childrenField: "nodes",
@@ -439,6 +479,11 @@ describe("real Pi CLI acceptance in isolated Git-installed environment", () => {
 
     await runPi({ args: { question: "Short stop", inputType: "select", default: "one", dataSource: source("remote-short") }, marker: "One", keys: "n\r", expected: '"one"' });
     expect(remoteSeen.map(item => item.url)).toEqual(["/remote-short?page=1&limit=2"]);
+
+    await runPi({ args: { question: "Loading guard", inputType: "select", default: "alpha", dataSource: source("remote-delayed") }, steps: [
+      { marker: "Loading remote options", keys: "n" }, { marker: "Alpha", keys: "\r" },
+    ], expected: '"alpha"' });
+    expect(remoteSeen.map(item => item.url)).toEqual(["/remote-delayed?page=1&limit=2"]);
 
     await runPi({ args: { question: "Full continues", inputType: "select", default: "one", dataSource: source("remote-pages") }, steps: [
       { marker: "Two", keys: "n" }, { marker: "Three", keys: "\u001b[B\u001b[B\r" },

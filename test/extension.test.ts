@@ -18,6 +18,26 @@ function context(overrides: Record<string, unknown> = {}) {
   } as any;
 }
 
+type TestFormComponent = { render(width: number): string[]; handleInput(data: string): void };
+
+function formContext(interact: (component: TestFormComponent) => void | Promise<void>, withTerminal = false) {
+  const ctx = context();
+  ctx.ui.custom = vi.fn(async (factory: any) => {
+    let finish!: (outcome: unknown) => void;
+    const outcome = new Promise(resolve => { finish = resolve; });
+    const component = factory(testTui(withTerminal), testTheme, {}, finish) as TestFormComponent;
+    await interact(component);
+    return outcome;
+  });
+  return ctx;
+}
+
+async function withFetchStub<T>(fetch: typeof globalThis.fetch, run: () => Promise<T>): Promise<T> {
+  const originalFetch = globalThis.fetch;
+  vi.stubGlobal("fetch", fetch);
+  try { return await run(); } finally { vi.stubGlobal("fetch", originalFetch); }
+}
+
 describe("extension public tool", () => {
   it("routes simple text to input without constructing custom UI", async () => {
     const ctx = context();
@@ -304,39 +324,25 @@ describe("extension public tool", () => {
   });
 
   it("does not request another remote page after the reported total is loaded", async () => {
-    const originalFetch = globalThis.fetch;
     const fetch = vi.fn(async () => new Response(JSON.stringify({ rows: [
       { id: "one", label: "One" }, { id: "two", label: "Two" },
     ], total: 2 }), { status: 200, headers: { "content-type": "application/json" } }));
-    vi.stubGlobal("fetch", fetch);
-    const fakeTui = testTui();
-    const theme = testTheme;
-    const ctx = context();
-    ctx.ui.custom = vi.fn(async (factory: any) => {
-      let finish!: (outcome: unknown) => void;
-      const outcome = new Promise(resolve => { finish = resolve; });
-      const component = factory(fakeTui, theme, {}, finish);
+    const ctx = formContext(async component => {
       await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
       await vi.waitFor(() => expect(component.render(80).join("\n")).toContain("Showing 2 of 2"));
       component.handleInput("n");
       await new Promise(done => setTimeout(done, 0));
       expect(fetch).toHaveBeenCalledTimes(1);
       component.handleInput("\u001b");
-      return outcome;
     });
 
-    try {
-      await createTool().execute("remote-total", { questions: [{
+    await withFetchStub(fetch, () => createTool().execute("remote-total", { questions: [{
         id: "remote", question: "Remote", inputType: "select", default: "one",
         dataSource: { type: "api", endpoint: "https://example.test/options", pageParam: "page", pageSizeParam: "limit", pageSize: 2, resultPath: "rows", totalPath: "total" },
-      }] }, undefined, undefined, ctx);
-    } finally {
-      vi.stubGlobal("fetch", originalFetch);
-    }
+      }] }, undefined, undefined, ctx));
   });
 
   it("continues after a full remote page and stops after a short page without total", async () => {
-    const originalFetch = globalThis.fetch;
     const seen: string[] = [];
     const fetch = vi.fn(async (input: string | URL | Request) => {
       const url = String(input);
@@ -347,14 +353,7 @@ describe("extension public tool", () => {
       ];
       return new Response(JSON.stringify({ rows }), { status: 200, headers: { "content-type": "application/json" } });
     });
-    vi.stubGlobal("fetch", fetch);
-    const fakeTui = testTui();
-    const theme = testTheme;
-    const ctx = context();
-    ctx.ui.custom = vi.fn(async (factory: any) => {
-      let finish!: (outcome: unknown) => void;
-      const outcome = new Promise(resolve => { finish = resolve; });
-      const component = factory(fakeTui, theme, {}, finish);
+    const ctx = formContext(async component => {
       await vi.waitFor(() => expect(component.render(80).join("\n")).toContain("Two"));
       component.handleInput("n");
       await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
@@ -363,22 +362,18 @@ describe("extension public tool", () => {
       expect(fetch).toHaveBeenCalledTimes(2);
       expect(component.render(80).join("\n")).toContain("Three");
       component.handleInput("\u001b");
-      return outcome;
     });
 
-    try {
+    await withFetchStub(fetch, async () => {
       await createTool().execute("remote-short", { questions: [{
         id: "remote", question: "Remote", inputType: "select", default: "one",
         dataSource: { type: "api", endpoint: "https://example.test/options", pageParam: "page", pageSizeParam: "limit", pageSize: 2, resultPath: "rows" },
       }] }, undefined, undefined, ctx);
       expect(seen.map(url => new URL(url).searchParams.get("page"))).toEqual(["1", "2"]);
-    } finally {
-      vi.stubGlobal("fetch", originalFetch);
-    }
+    });
   });
 
   it("keeps a known remote total when an appended page omits it", async () => {
-    const originalFetch = globalThis.fetch;
     const fetch = vi.fn(async (input: string | URL | Request) => {
       const page = new URL(String(input)).searchParams.get("page");
       const payload = page === "2"
@@ -386,14 +381,7 @@ describe("extension public tool", () => {
         : { rows: [{ id: "one", label: "One" }, { id: "two", label: "Two" }], total: 3 };
       return new Response(JSON.stringify(payload), { status: 200, headers: { "content-type": "application/json" } });
     });
-    vi.stubGlobal("fetch", fetch);
-    const fakeTui = testTui();
-    const theme = testTheme;
-    const ctx = context();
-    ctx.ui.custom = vi.fn(async (factory: any) => {
-      let finish!: (outcome: unknown) => void;
-      const outcome = new Promise(resolve => { finish = resolve; });
-      const component = factory(fakeTui, theme, {}, finish);
+    const ctx = formContext(async component => {
       await vi.waitFor(() => expect(component.render(80).join("\n")).toContain("Showing 2 of 3"));
       component.handleInput("n");
       await vi.waitFor(() => expect(component.render(80).join("\n")).toContain("Showing 3 of 3"));
@@ -401,21 +389,15 @@ describe("extension public tool", () => {
       await new Promise(done => setTimeout(done, 0));
       expect(fetch).toHaveBeenCalledTimes(2);
       component.handleInput("\u001b");
-      return outcome;
     });
 
-    try {
-      await createTool().execute("remote-known-total", { questions: [{
+    await withFetchStub(fetch, () => createTool().execute("remote-known-total", { questions: [{
         id: "remote", question: "Remote", inputType: "select", default: "one",
         dataSource: { type: "api", endpoint: "https://example.test/options", pageParam: "page", pageSizeParam: "limit", pageSize: 2, resultPath: "rows", totalPath: "total" },
-      }] }, undefined, undefined, ctx);
-    } finally {
-      vi.stubGlobal("fetch", originalFetch);
-    }
+      }] }, undefined, undefined, ctx));
   });
 
   it("retries the failed page and resets pagination for a new remote search without losing the answer", async () => {
-    const originalFetch = globalThis.fetch;
     const seen: URL[] = [];
     let pageTwoAttempts = 0;
     const fetch = vi.fn(async (input: string | URL | Request) => {
@@ -429,14 +411,7 @@ describe("extension public tool", () => {
         : page === "2" ? [{ id: "three", label: "Three" }] : [{ id: "one", label: "One" }, { id: "two", label: "Two" }];
       return new Response(JSON.stringify({ rows }), { status: 200, headers: { "content-type": "application/json" } });
     });
-    vi.stubGlobal("fetch", fetch);
-    const fakeTui = testTui(true);
-    const theme = testTheme;
-    const ctx = context();
-    ctx.ui.custom = vi.fn(async (factory: any) => {
-      let finish!: (outcome: unknown) => void;
-      const outcome = new Promise(resolve => { finish = resolve; });
-      const component = factory(fakeTui, theme, {}, finish);
+    const ctx = formContext(async component => {
       await vi.waitFor(() => expect(component.render(80).join("\n")).toContain("Two"));
       component.handleInput("n");
       await vi.waitFor(() => expect(component.render(80).join("\n")).toContain("HTTP 503"));
@@ -451,17 +426,14 @@ describe("extension public tool", () => {
       component.handleInput("n");
       await vi.waitFor(() => expect(component.render(80).join("\n")).toContain("Search three"));
       component.handleInput("\u001b");
-      return outcome;
-    });
+    }, true);
 
-    try {
+    await withFetchStub(fetch, async () => {
       await createTool().execute("remote-retry", { questions: [{
         id: "remote", question: "Remote", inputType: "select", default: "one",
         dataSource: { type: "api", endpoint: "https://example.test/options", searchParam: "q", pageParam: "page", pageSizeParam: "limit", pageSize: 2, resultPath: "rows" },
       }] }, undefined, undefined, ctx);
       expect(seen.map(url => `${url.searchParams.get("q") ?? ""}:${url.searchParams.get("page")}`)).toEqual([":1", ":2", ":2", "needle:1", "needle:2"]);
-    } finally {
-      vi.stubGlobal("fetch", originalFetch);
-    }
+    });
   });
 });

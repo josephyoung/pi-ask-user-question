@@ -106,7 +106,7 @@ export function createQuestionForm(
       q.options = attempt.append ? mergeUniqueOptions(q.options ?? [], loaded.options) : loaded.options;
       q.presentationOptions = attempt.append
         ? mergeUniqueOptions(q.presentationOptions ?? [], loaded.options)
-        : loaded.options;
+        : mergeUniqueOptions(loaded.options, q.presentationOptions ?? []);
       state.search = attempt.search;
       state.page = attempt.page;
       state.total = attempt.append ? loaded.total ?? state.total : loaded.total;

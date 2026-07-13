@@ -165,7 +165,8 @@ function matchesDateFormat(value: string, pattern: string): boolean {
 function normalizeChoice(question: NormalizedQuestion, value: string | number | OptionItem): OptionId {
   const candidate = isOptionObject(value) ? value.id : typeof value === "string" ? value.trim() : value;
   if (!isOptionId(candidate)) throw new Error("请选择一个有效选项");
-  const options = flattenOptions(question.options ?? []);
+  const catalog = question.presentationOptions ?? question.options ?? [];
+  const options = question.inputType === "treeSelect" ? flattenOptions(catalog) : catalog;
   if (!options.length) return candidate;
   const exact = options.find(o => o.id === candidate);
   if (exact && !isOtherOption(exact)) return exact.id;

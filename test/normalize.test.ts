@@ -22,6 +22,11 @@ describe("compatibility normalization", () => {
     expect(() => normalizeAnswer(multiple, ["custom one", "custom two"])).toThrow("只能填写一个其他回答");
     const tree = normalizeRequest({ question: "Tree", inputType: "treeSelect", options: [{ id: "root", label: "Root", children: [{ id: "child", label: "Child" }] }], default: "root" }).questions[0]!;
     expect(normalizeAnswer(tree, "child")).toBe("child");
+    expect(() => normalizeRequest({
+      question: "Flat select", inputType: "select",
+      options: [{ id: "root", label: "Root", children: [{ id: "child", label: "Child" }] }],
+      default: "child",
+    })).toThrow("答案必须匹配一个可选项");
   });
 
   it("normalizes a JSON-stringified multiple-choice default produced by a model tool call", () => {
