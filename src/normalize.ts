@@ -1,5 +1,6 @@
 import type { Answer, AnswerInput, DataSource, InputType, NormalizedQuestion, NormalizedRequest, OptionId, OptionItem, RawQuestion, RawRequest } from "./types.js";
 import { format, isMatch, parse } from "date-fns";
+import { flattenOptions } from "./options.js";
 
 export const missingBaseUrlError = `Relative dataSource.endpoint requires top-level dataSourceBaseUrl. Retry silently with either {"question":"Choose","inputType":"select","default":"first","dataSource":{"type":"api","endpoint":"/options"},"dataSourceBaseUrl":"https://api.example.com"} or {"questions":[{"id":"choice","question":"Choose","inputType":"select","default":"first","dataSource":{"type":"api","endpoint":"/options"}}],"dataSourceBaseUrl":"https://api.example.com"}. Do not ask the user for the base URL.`;
 export const mixedGroupedFieldsError = "Invalid ask_user_question call: when using questions, field configuration belongs inside each questions[] item. Move options, inputType, dateFormat, required, dataSource, multiple, default, and confirm out of the top level. Retry silently; do not explain this correction to the user.";
@@ -10,7 +11,6 @@ const firstDefined = <T>(...values: Array<T | undefined>) => values.find((v): v 
 const optionKey = (id: OptionId) => `${typeof id}:${String(id)}`;
 const isOptionId = (v: unknown): v is OptionId => (typeof v === "string" && v.trim().length > 0) || (typeof v === "number" && Number.isFinite(v));
 const isOptionObject = (v: unknown): v is OptionItem => isRecord(v) && isOptionId(v.id) && typeof v.label === "string";
-const flattenOptions = (options: OptionItem[]): OptionItem[] => options.flatMap(option => [option, ...flattenOptions(option.children ?? [])]);
 export const isOtherOption = (option: Pick<OptionItem, "label">) => ["other", "其他"].includes(option.label.trim().toLocaleLowerCase());
 
 function parseQuestions(value: unknown): unknown[] {
@@ -44,6 +44,16 @@ function normalizeOption(value: string | OptionItem): OptionItem {
   return { ...value, id: typeof value.id === "string" ? value.id.trim() : value.id, label: value.label.trim() };
 }
 
+function normalizeMultipleDefault(value: AnswerInput | undefined): AnswerInput | undefined {
+  if (typeof value !== "string") return value;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed as AnswerInput : value;
+  } catch {
+    return value;
+  }
+}
+
 function normalizeOne(raw: RawQuestion, fallbackId: string): NormalizedQuestion {
   const question = firstString(raw.question, raw.title, raw.label, raw.prompt);
   if (!question) throw new Error("Question is required");
@@ -65,7 +75,8 @@ function normalizeOne(raw: RawQuestion, fallbackId: string): NormalizedQuestion 
   if (["radio", "select", "treeSelect"].includes(finalType) && !options && !dataSource) throw new Error("Choice questions require options or dataSource");
   if ((multiple || finalType === "checkbox") && !options && !dataSource) throw new Error("Multiple-choice questions require options or dataSource");
   const kind = finalType === "confirm" ? "confirm" : finalType === "date" ? "date" : multiple || finalType === "checkbox" ? "multiple" : options || dataSource || ["radio", "select", "treeSelect"].includes(finalType) ? "single" : "text";
-  const defaultValue = firstDefined(raw.default, raw.defaultValue, raw.prefill, raw.value);
+  const suppliedDefault = firstDefined(raw.default, raw.defaultValue, raw.prefill, raw.value);
+  const defaultValue = kind === "multiple" ? normalizeMultipleDefault(suppliedDefault) : suppliedDefault;
   if (kind !== "confirm" && defaultValue === undefined) throw new Error("默认答案缺失：每个非确认问题都必须提供非空 default 推荐值");
   if (typeof defaultValue === "string" && !defaultValue.trim()) throw new Error("默认答案无效：default 必须是非空推荐值，不能是空字符串");
   const result: NormalizedQuestion = { id, question, inputType: finalType, kind, required: raw.required === true };

@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, normalize, resolve } from "node:path";
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
@@ -17,6 +17,7 @@ let barePath = "";
 let baseUrl = "";
 let scenario: Scenario | undefined;
 let lastToolResult = "";
+let lastToolDetails: unknown;
 let remoteAttempts = 0;
 const requestLog: string[] = [];
 const remoteSeen: Array<{ method: string | undefined; url: string | undefined; headers: import("node:http").IncomingHttpHeaders; body: string }> = [];
@@ -25,6 +26,28 @@ const ptys = new Set<IPty>();
 
 const ansi = /[\u001B\u009B][[\]()#;?]*(?:(?:(?:[a-zA-Z\d]*(?:;[-a-zA-Z\d\/#&.:=?%@~_]+)*)?\u0007)|(?:(?:\d{1,4}(?:[;:]\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~]))/g;
 const clean = (value: string) => value.replace(ansi, "").replace(/\r/g, "");
+
+function sessionFiles(directory: string): string[] {
+  if (!existsSync(directory)) return [];
+  return readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
+    const path = join(directory, entry.name);
+    return entry.isDirectory() ? sessionFiles(path) : path.endsWith(".jsonl") ? [path] : [];
+  });
+}
+
+function latestToolDetails(): unknown {
+  let latest: { timestamp: number; details: unknown } | undefined;
+  for (const file of sessionFiles(join(state, "sessions"))) {
+    for (const line of readFileSync(file, "utf8").split("\n")) {
+      if (!line) continue;
+      const entry = JSON.parse(line) as { timestamp?: string; message?: { role?: string; toolName?: string; details?: unknown; timestamp?: number } };
+      if (entry.message?.role !== "toolResult" || entry.message.toolName !== "ask_user_question") continue;
+      const timestamp = entry.message.timestamp ?? Date.parse(entry.timestamp ?? "");
+      if (!latest || timestamp > latest.timestamp) latest = { timestamp, details: entry.message.details };
+    }
+  }
+  return latest?.details;
+}
 
 function completion(response: import("node:http").ServerResponse, body: Record<string, unknown>, finish: string) {
   response.writeHead(200, { "content-type": "text/event-stream", connection: "keep-alive", "cache-control": "no-cache" });
@@ -95,8 +118,8 @@ async function runAsync(command: string, args: string[], cwd: string, env: NodeJ
 }
 
 async function runPi(next: Scenario): Promise<string> {
-  scenario = next; lastToolResult = ""; remoteAttempts = 0; requestLog.length = 0; remoteSeen.length = 0;
-  const args = ["--no-session", "--no-skills", "--no-context-files", "--approve", "--model", "acceptance/local", "--api-key", "test", "--thinking", "off", "--tools", "ask_user_question", "RUN ACCEPTANCE SCENARIO"];
+  scenario = next; lastToolResult = ""; lastToolDetails = undefined; remoteAttempts = 0; requestLog.length = 0; remoteSeen.length = 0;
+  const args = ["--no-skills", "--no-context-files", "--approve", "--model", "acceptance/local", "--api-key", "test", "--thinking", "off", "--tools", "ask_user_question", "RUN ACCEPTANCE SCENARIO"];
   const env = Object.fromEntries(Object.entries({ ...process.env, PI_CODING_AGENT_DIR: state, NPM_CONFIG_CACHE: join(sandbox, "npm-cache"), TERM: "xterm-256color" }).filter((entry): entry is [string, string] => entry[1] !== undefined));
   const child = spawnPty(process.execPath, [realpathSync(piExecutable), ...args], { cwd: project, env, cols: 100, rows: 32 });
   ptys.add(child);
@@ -120,6 +143,7 @@ async function runPi(next: Scenario): Promise<string> {
   });
   ptys.delete(child);
   if (status !== 0) throw new Error(`real pi exited ${status}:\n${clean(output).slice(-5000)}`);
+  lastToolDetails = latestToolDetails();
   if (next.expected) expect(lastToolResult).toContain(next.expected);
   return clean(output);
 }
@@ -155,7 +179,7 @@ describe("real Pi CLI acceptance in isolated Git-installed environment", () => {
   it("uses all four Pi primitives and continues the agent", async () => {
     expect(await runPi({ args: { question: "Primitive text", default: "Ada", required: true }, marker: "Primitive text", keys: "Grace\r", expected: '"Grace"' })).toContain("CONTINUED:");
     expect(await runPi({ args: { question: "Primitive textarea", inputType: "textarea", default: "Long default", required: true }, marker: "Primitive textarea", keys: "\r", expected: "Long default" })).toContain("CONTINUED:");
-    expect(await runPi({ args: { question: "Primitive select", options: [{ id: 1, label: "One" }, { id: 2, label: "Two" }], default: 1 }, marker: "Primitive select", keys: "\u001b[B\r", expected: "2" })).toContain("CONTINUED:");
+    expect(await runPi({ args: { question: "Primitive select", options: [{ id: 1, label: "One" }, { id: 2, label: "Two" }], default: 1 }, marker: "Primitive select", keys: "\u001b[B\r", expected: '"Two"' })).toContain("CONTINUED:");
     expect(await runPi({ args: { question: "Primitive confirm", confirm: true }, marker: "Primitive confirm", keys: "\r", expected: "true" })).toContain("CONTINUED:");
     expect(await runPi({ args: { question: "Primitive other", options: ["Known", "Other"], default: "Known" }, steps: [
       { marker: "Primitive other", keys: "\u001b[B" }, { marker: "→ Other", keys: "\r" }, { marker: "Other", keys: "custom\r" },
@@ -163,15 +187,49 @@ describe("real Pi CLI acceptance in isolated Git-installed environment", () => {
   }, 120_000);
 
   it("submits every advanced type and a grouped form atomically through custom UI", async () => {
-    expect(await runPi({ args: { question: "Multiple custom", options: ["A", "B", "Other"], multiple: true, default: ["A"], required: true }, marker: "Multiple custom", keys: "\u001b[B\r", expected: '["A","B"]' })).toContain("CONTINUED:");
+    expect(await runPi({ args: { question: "Multiple custom", options: ["A", "B", "Other"], multiple: true, default: ["A"], required: true }, steps: [
+      { marker: "Multiple custom", keys: "\u001b[B" }, { marker: "> [ ] B", keys: " " }, { marker: "[x] B", keys: "\r" },
+    ], expected: '["A","B"]' })).toContain("CONTINUED:");
     expect(await runPi({ args: { question: "Date custom", inputType: "date", dateFormat: "yyyy-MM-dd", default: "2026-07-13", required: true }, marker: "Date custom", keys: "\r", expected: "2026-07-13" })).toContain("CONTINUED:");
-    expect(await runPi({ args: { question: "Tree custom", inputType: "treeSelect", default: "alpha", dataSource: { type: "api", endpoint: `${baseUrl}/remote`, resultPath: "payload.rows", totalPath: "payload.total", idField: "code", labelField: "text", childrenField: "nodes" } }, marker: "Alpha", keys: "\r", expected: "alpha" })).toContain("CONTINUED:");
+    expect(await runPi({ args: { question: "Tree custom", inputType: "treeSelect", default: "alpha", dataSource: { type: "api", endpoint: `${baseUrl}/remote`, resultPath: "payload.rows", totalPath: "payload.total", idField: "code", labelField: "text", childrenField: "nodes" } }, marker: "Alpha", keys: "\r", expected: '"Alpha"' })).toContain("CONTINUED:");
     const grouped = { questions: [
       { id: "text", question: "Grouped text", default: "ready", required: true },
       { id: "confirm", question: "Grouped confirm", confirm: true },
       { id: "choice", question: "Grouped remote", inputType: "select", default: "alpha", dataSource: { type: "api", endpoint: "/remote", resultPath: "payload.rows", idField: "code", labelField: "text" } },
     ], dataSourceBaseUrl: baseUrl };
     expect(await runPi({ args: grouped, marker: "Grouped text", keys: "\u0013", expected: '"text":"ready"' })).toContain("CONTINUED:");
+  }, 120_000);
+
+  it("submits structured multiple-choice labels without toggling the selection on Enter", async () => {
+    const output = await runPi({ args: {
+      question: "Structured multiple",
+      inputType: "checkbox",
+      multiple: true,
+      options: [{ id: "typescript", label: "TypeScript" }, { id: "python", label: "Python" }],
+      default: '["typescript"]',
+      required: true,
+    }, steps: [
+      { marker: "Structured multiple", keys: "\u001b[B" },
+      { marker: "> [ ] Python", keys: " " },
+      { marker: "[x] Python", keys: "\r" },
+    ], expected: '["TypeScript","Python"]' });
+    expect(lastToolDetails).toEqual({ status: "answered", answer: ["typescript", "python"] });
+    expect(output).toContain("CONTINUED:");
+  }, 120_000);
+
+  it("advances from grouped multiple choice and submits the final answer with Enter", async () => {
+    const grouped = { questions: [
+      { id: "languages", question: "Grouped multiple", options: ["A", "B"], multiple: true, default: ["A"], required: true },
+      { id: "following", question: "Following text", default: "done", required: true },
+    ] };
+    const output = await runPi({ args: grouped, steps: [
+      { marker: "Grouped multiple", keys: "\u001b[B" },
+      { marker: "> [ ] B", keys: " " },
+      { marker: "[x] B", keys: "\r" },
+      { marker: "> Following text: done", keys: " changed\r" },
+    ], expected: '"languages":["A","B"]' });
+    expect(lastToolResult).toContain('"following":"done changed"');
+    expect(output).toContain("CONTINUED:");
   }, 120_000);
 
   it("returns missing-base guidance before UI, keeps remote errors field-local, supports cancel and abort", async () => {
@@ -182,7 +240,7 @@ describe("real Pi CLI acceptance in isolated Git-installed environment", () => {
       { id: "remote", question: "Retry remote", inputType: "select", default: "alpha", dataSource: { type: "api", endpoint: `${baseUrl}/remote-http-error`, resultPath: "payload.rows", idField: "code", labelField: "text" } },
     ] }, steps: [{ marker: "Preserved answer", keys: "\r" }, { marker: "press r to retry", keys: "r" }, { marker: "Alpha", keys: "\r\u0013" }], expected: '"preserved":"kept"' });
     expect(retry).toContain("Remote options HTTP 503");
-    expect(lastToolResult).toContain('"remote":"alpha"');
+    expect(lastToolResult).toContain('"remote":"Alpha"');
     expect(await runPi({ args: { question: "Cancel custom", inputType: "date", dateFormat: "yyyy-MM-dd", default: "2026-07-13" }, marker: "Cancel custom", keys: "\u001b", expected: "cancelled" })).toContain("CONTINUED:");
     expect(await runPi({ args: { question: "Abort custom", inputType: "date", dateFormat: "yyyy-MM-dd", default: "2026-07-13" }, marker: "Abort custom", keys: "\u0003", abort: true })).toContain("Question was aborted");
   }, 120_000);
@@ -191,7 +249,7 @@ describe("real Pi CLI acceptance in isolated Git-installed environment", () => {
     const mappedSource = { type: "api", endpoint: `${baseUrl}/remote-post`, method: "POST", params: { fixed: "yes" }, headers: { "x-test": "header", Cookie: "existing=1" }, cookies: { session: "abc" }, resultPath: "payload.rows", totalPath: "payload.total", idField: "code", labelField: "text", childrenField: "nodes", extraFields: ["meta"] };
     const mapped = await runPi({ args: { question: "POST remote", inputType: "treeSelect", default: "alpha", dataSource: mappedSource }, steps: [
       { marker: "Child", keys: "\u001b[B" }, { marker: ">    Child", keys: "\r" },
-    ], expected: "child" });
+    ], expected: '"Child"' });
     expect(remoteSeen[0]).toMatchObject({ method: "POST", headers: { "x-test": "header", cookie: "existing=1; session=abc" }, body: '{"fixed":"yes"}' });
     expect(mapped).toContain("Alpha · kept");
     expect(mapped).toContain("Child");
@@ -201,11 +259,11 @@ describe("real Pi CLI acceptance in isolated Git-installed environment", () => {
     await runPi({ args: { question: "Search remote", inputType: "select", default: "alpha", dataSource: searchSource }, steps: [
       { marker: "Alpha", keys: "s" }, { marker: "Search remote options", keys: "needle" }, { marker: "needle", keys: "\r" },
       { marker: "Search result", keys: "n" }, { marker: "Page two", keys: "\u001b[B" }, { marker: ">  Page two", keys: "\r" },
-    ], expected: "page-two" });
+    ], expected: '"Page two"' });
     expect(remoteSeen.some(item => item.url?.includes("q=needle") && item.url.includes("page=2") && item.url.includes("limit=1"))).toBe(true);
 
     for (const [suffix, marker] of [["transport", "transport failed"], ["invalid-json", "invalid JSON"], ["invalid-mapping", "mapping failed"]] as const) {
-      const output = await runPi({ args: { question: `Retry ${suffix}`, inputType: "select", default: "alpha", dataSource: { type: "api", endpoint: `${baseUrl}/remote-${suffix}`, resultPath: "payload.rows", idField: "code", labelField: "text" } }, marker, keys: "r", followupMarker: "Alpha", followupKeys: "\r", expected: "alpha" });
+      const output = await runPi({ args: { question: `Retry ${suffix}`, inputType: "select", default: "alpha", dataSource: { type: "api", endpoint: `${baseUrl}/remote-${suffix}`, resultPath: "payload.rows", idField: "code", labelField: "text" } }, marker, keys: "r", followupMarker: "Alpha", followupKeys: "\r", expected: '"Alpha"' });
       expect(output).toContain(marker);
     }
   }, 120_000);

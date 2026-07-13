@@ -72,6 +72,10 @@ export function createQuestionForm(
     if (current().dataSource && !current().options?.length) void reload();
     refresh();
   }
+  function finishQuestion() {
+    if (request.grouped && index < request.questions.length - 1) move(1);
+    else submit();
+  }
   async function reload(search?: string, append = false) {
     const q = current();
     if (!q.dataSource || loading.has(q.id)) return;
@@ -144,7 +148,10 @@ export function createQuestionForm(
       }
       if (q.dataSource && totals.has(q.id)) lines.push(theme.fg("dim", `Showing ${opts.length} of ${totals.get(q.id)}`));
       if (q.dataSource) lines.push(theme.fg("dim", searchMode ? "Search remote options" : "s search · n next page · r retry"));
-      lines.push(theme.fg("dim", request.grouped ? "Enter answer · Ctrl+S submit · Esc cancel" : "Enter submit · Esc cancel"));
+      const enterAction = request.grouped && index < request.questions.length - 1 ? "next" : "submit";
+      lines.push(theme.fg("dim", q.kind === "multiple"
+        ? `Space toggle · Enter ${enterAction} · Ctrl+S submit · Esc cancel`
+        : `Enter ${enterAction} · Ctrl+S submit · Esc cancel`));
       lines.push(theme.fg("accent", "─".repeat(Math.max(1, width))));
       return lines;
     },
@@ -172,14 +179,14 @@ export function createQuestionForm(
             values.push(custom); answers.set(q.id, values);
           } else answers.set(q.id, custom);
           customMode = false;
-          if (request.grouped) move(1); else submit();
+          finishQuestion();
         } else { editor.handleInput(data); refresh(); }
         return;
       }
       if (usesTextEditor(q)) {
         if (matchesKey(data, Key.enter)) {
           answers.set(q.id, editor.getText());
-          if (request.grouped) move(1); else submit();
+          finishQuestion();
         } else { editor.handleInput(data); refresh(); }
         return;
       }
@@ -188,10 +195,11 @@ export function createQuestionForm(
       if (matchesKey(data, Key.enter) || matchesKey(data, Key.space)) {
         if (q.kind === "confirm") {
           answers.set(q.id, optionIndex === 0);
-          if (request.grouped) move(1); else submit();
+          finishQuestion();
           return;
         }
         const selected = opts[optionIndex]; if (!selected) return;
+        if (q.kind === "multiple" && matchesKey(data, Key.enter)) { finishQuestion(); return; }
         if (isOtherOption(selected)) {
           customMode = true; editor.setText(""); refresh(); return;
         }
@@ -199,10 +207,9 @@ export function createQuestionForm(
           const values = Array.isArray(answers.get(q.id)) ? [...answers.get(q.id) as Array<string | number>] : [];
           const at = values.findIndex(v => v === selected.id); if (at >= 0) values.splice(at, 1); else values.push(selected.id);
           answers.set(q.id, values); refresh();
-          if (matchesKey(data, Key.enter) && !request.grouped) submit();
         } else {
           answers.set(q.id, selected.id);
-          if (request.grouped) move(1); else submit();
+          finishQuestion();
         }
       }
     },
