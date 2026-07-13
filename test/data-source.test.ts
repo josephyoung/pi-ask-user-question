@@ -12,7 +12,8 @@ const server = createServer((request, response) => {
     if (request.url?.startsWith("/invalid-json")) { response.end("not json"); return; }
     if (request.url?.startsWith("/error")) { response.statusCode = 503; response.end("down"); return; }
     response.setHeader("content-type", "application/json");
-    response.end(JSON.stringify({ data: { rows: [{ code: 7, text: "Seven", children: [{ code: 8, text: "Eight" }], meta: "kept" }], total: 41 } }));
+    const numericLabel = request.url?.startsWith("/numeric-label");
+    response.end(JSON.stringify({ data: { rows: [{ code: 7, text: numericLabel ? 700 : "Seven", children: [{ code: 8, text: "Eight" }], meta: "kept" }], total: 41 } }));
   });
 });
 
@@ -39,6 +40,13 @@ describe("remote data source", () => {
   it("sends POST params in JSON", async () => {
     await loadOptions({ type: "api", endpoint: `${baseUrl}/post`, method: "POST", params: { scope: "all" }, resultPath: "data.rows", idField: "code", labelField: "text" }, undefined);
     expect(seen.at(-1)).toMatchObject({ method: "POST", body: '{"scope":"all"}' });
+  });
+
+  it("accepts finite numeric remote labels as display strings", async () => {
+    const result = await loadOptions({
+      type: "api", endpoint: `${baseUrl}/numeric-label`, resultPath: "data.rows", idField: "code", labelField: "text",
+    }, undefined);
+    expect(result.options).toMatchObject([{ id: 7, label: "700" }]);
   });
 
   it("reports HTTP, invalid JSON and invalid mapping failures distinctly", async () => {

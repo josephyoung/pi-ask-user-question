@@ -12,6 +12,10 @@ export type FormOutcome =
 
 const flatten = (items: OptionItem[], depth = 0): Array<OptionItem & { depth: number }> => items.flatMap(item => [{ ...item, depth }, ...flatten(item.children ?? [], depth + 1)]);
 const defaultText = (q: NormalizedQuestion) => typeof q.default === "string" ? q.default : "";
+const mergeUniqueOptions = (existing: OptionItem[], loaded: OptionItem[]) => [...existing, ...loaded]
+  .filter((option, position, all) => all.findIndex(candidate => typeof candidate.id === typeof option.id && candidate.id === option.id) === position);
+type RemoteAttempt = { search: string | undefined; page: number; append: boolean };
+type RemoteState = { search: string | undefined; page: number; total: number | undefined; hasMore: boolean; retry: RemoteAttempt | undefined };
 
 export function createQuestionForm(
   tui: TUI,
@@ -27,9 +31,8 @@ export function createQuestionForm(
   let settled = false;
   let searchMode = false;
   let customMode = false;
-  const pages = new Map<string, number>();
-  const searches = new Map<string, string>();
-  const totals = new Map<string, number>();
+  const remoteStates = new Map<string, RemoteState>();
+  const resolvedRemoteDefaults = new Set<string>();
   const answers = new Map<string, AnswerInput>();
   const errors = new Map<string, string>();
   const loading = new Set<string>();
@@ -57,7 +60,24 @@ export function createQuestionForm(
   if (signal?.aborted) onAbort();
 
   function current() { return request.questions[index]!; }
-  function options(q = current()) { return flatten(q.options ?? []); }
+  function remoteState(q: NormalizedQuestion) {
+    let state = remoteStates.get(q.id);
+    if (!state) { state = { search: undefined, page: 0, total: undefined, hasMore: true, retry: undefined }; remoteStates.set(q.id, state); }
+    return state;
+  }
+  function options(q = current()) {
+    const items = q.options ?? [];
+    return q.inputType === "treeSelect" ? flatten(items) : items.map(item => ({ ...item, depth: 0 }));
+  }
+  function syncOptionIndex() {
+    const q = current();
+    const opts = options(q);
+    const answer = answers.get(q.id);
+    const selected = Array.isArray(answer) ? answer[0] : answer;
+    let next = opts.findIndex(option => option.id === selected);
+    if (next < 0 && typeof selected === "string") next = opts.findIndex(option => isOtherOption(option));
+    optionIndex = next < 0 ? 0 : next;
+  }
   function storeEditor() {
     const q = current();
     if (usesTextEditor(q)) answers.set(q.id, editor.getText());
@@ -65,49 +85,79 @@ export function createQuestionForm(
   function move(delta: number) {
     storeEditor();
     index = (index + delta + request.questions.length) % request.questions.length;
-    optionIndex = 0;
+    syncOptionIndex();
     editor.setText(defaultText(current()));
     const existing = answers.get(current().id);
     if (typeof existing === "string" && usesTextEditor(current())) editor.setText(existing);
-    if (current().dataSource && !current().options?.length) void reload();
+    if (current().dataSource && remoteState(current()).page === 0) void loadInitial(current());
     refresh();
   }
   function finishQuestion() {
     if (request.grouped && index < request.questions.length - 1) move(1);
     else submit();
   }
-  async function reload(search?: string, append = false) {
-    const q = current();
+  async function reload(q: NormalizedQuestion, attempt: RemoteAttempt) {
     if (!q.dataSource || loading.has(q.id)) return;
     loading.add(q.id); errors.delete(q.id); refresh();
+    const state = remoteState(q);
     try {
-      if (search !== undefined) searches.set(q.id, search);
-      const activeSearch = searches.get(q.id);
-      const page = pages.get(q.id) ?? 1;
-      const query = activeSearch === undefined ? { page } : { search: activeSearch, page };
+      const query = attempt.search === undefined ? { page: attempt.page } : { search: attempt.search, page: attempt.page };
       const loaded = await loadOptions(q.dataSource, request.dataSourceBaseUrl, query, signal);
-      q.options = append ? [...(q.options ?? []), ...loaded.options].filter((option, position, all) => all.findIndex(candidate => typeof candidate.id === typeof option.id && candidate.id === option.id) === position) : loaded.options;
-      if (loaded.total !== undefined) totals.set(q.id, loaded.total);
-      optionIndex = 0;
-    } catch (cause) { errors.set(q.id, cause instanceof Error ? cause.message : String(cause)); }
+      q.options = attempt.append ? mergeUniqueOptions(q.options ?? [], loaded.options) : loaded.options;
+      q.presentationOptions = attempt.append
+        ? mergeUniqueOptions(q.presentationOptions ?? [], loaded.options)
+        : mergeUniqueOptions(loaded.options, q.presentationOptions ?? []);
+      state.search = attempt.search;
+      state.page = attempt.page;
+      state.total = attempt.append ? loaded.total ?? state.total : loaded.total;
+      state.hasMore = state.total !== undefined
+        ? q.options.length < state.total
+        : loaded.options.length >= (q.dataSource.pageSize ?? 20);
+      state.retry = undefined;
+      if (!resolvedRemoteDefaults.has(q.id)) {
+        const existing = answers.get(q.id);
+        if (existing !== undefined) answers.set(q.id, normalizeAnswer(q, existing));
+        resolvedRemoteDefaults.add(q.id);
+      }
+      if (current().id === q.id) syncOptionIndex();
+    } catch (cause) {
+      state.retry = attempt;
+      errors.set(q.id, cause instanceof Error ? cause.message : String(cause));
+    }
     finally { loading.delete(q.id); refresh(); }
   }
+  function loadInitial(q: NormalizedQuestion) { return reload(q, { search: undefined, page: 1, append: false }); }
+  function loadNext(q: NormalizedQuestion) {
+    const state = remoteState(q);
+    if (loading.has(q.id) || !state.hasMore) return;
+    void reload(q, { search: state.search, page: state.page + 1, append: true });
+  }
+  function retry(q: NormalizedQuestion) {
+    const state = remoteState(q);
+    void reload(q, state.retry ?? { search: state.search, page: Math.max(1, state.page), append: false });
+  }
+  function search(q: NormalizedQuestion, value: string) { void reload(q, { search: value, page: 1, append: false }); }
 
   function submit() {
     storeEditor();
-    try {
-      const normalized: Record<string, Answer> = {};
-      for (const q of request.questions) {
+    const normalized: Record<string, Answer> = {};
+    let invalid = false;
+    for (const q of request.questions) {
+      try {
         if (!answers.has(q.id)) {
           if (q.required) throw new Error(`Missing answer for grouped question: ${q.id}`);
           continue;
         }
         normalized[q.id] = normalizeAnswer(q, answers.get(q.id)!);
+      } catch (cause) {
+        invalid = true;
+        errors.set(q.id, cause instanceof Error ? cause.message : String(cause));
       }
-      answers.clear();
-      for (const [key, value] of Object.entries(normalized)) answers.set(key, value);
-      settle("answered");
-    } catch (cause) { errors.set(current().id, cause instanceof Error ? cause.message : String(cause)); refresh(); }
+    }
+    if (invalid) { refresh(); return; }
+    answers.clear();
+    for (const [key, value] of Object.entries(normalized)) answers.set(key, value);
+    settle("answered");
   }
 
   function disposeResources() {
@@ -116,7 +166,8 @@ export function createQuestionForm(
     signal?.removeEventListener("abort", onAbort);
   }
 
-  if (current().dataSource && !current().options?.length) void reload();
+  syncOptionIndex();
+  if (current().dataSource && remoteState(current()).page === 0) void loadInitial(current());
 
   return {
     render(width: number): string[] {
@@ -146,8 +197,10 @@ export function createQuestionForm(
           lines.push(`${prefix} ${selected ? "[x]" : q.kind === "multiple" ? "[ ]" : ""} ${"  ".repeat(opt.depth)}${opt.label}${extra}`);
         });
       }
-      if (q.dataSource && totals.has(q.id)) lines.push(theme.fg("dim", `Showing ${opts.length} of ${totals.get(q.id)}`));
-      if (q.dataSource) lines.push(theme.fg("dim", searchMode ? "Search remote options" : "s search · n next page · r retry"));
+      const state = q.dataSource ? remoteState(q) : undefined;
+      if (state?.total !== undefined) lines.push(theme.fg("dim", `Showing ${q.options?.length ?? 0} of ${state.total}`));
+      if (q.dataSource) lines.push(theme.fg("dim", searchMode ? "Search remote options" : `s search · ${state?.hasMore ? "n next page · " : ""}r retry`));
+      if (!q.required && ["select", "treeSelect"].includes(q.inputType)) lines.push(theme.fg("dim", "Delete clear optional answer"));
       const enterAction = request.grouped && index < request.questions.length - 1 ? "next" : "submit";
       lines.push(theme.fg("dim", q.kind === "multiple"
         ? `Space toggle · Enter ${enterAction} · Ctrl+S submit · Esc cancel`
@@ -163,11 +216,14 @@ export function createQuestionForm(
       if (matchesKey(data, "ctrl+s")) { submit(); return; }
       if (request.grouped && matchesKey(data, Key.tab)) { move(1); return; }
       if (request.grouped && matchesKey(data, "shift+tab")) { move(-1); return; }
-      if (data === "r" && q.dataSource && !searchMode) { void reload(); return; }
-      if (data === "n" && q.dataSource && !searchMode) { pages.set(q.id, (pages.get(q.id) ?? 1) + 1); void reload(undefined, true); return; }
+      if (!q.required && ["select", "treeSelect"].includes(q.inputType) && (matchesKey(data, Key.delete) || matchesKey(data, Key.backspace))) {
+        answers.delete(q.id); refresh(); return;
+      }
+      if (data === "r" && q.dataSource && !searchMode) { retry(q); return; }
+      if (data === "n" && q.dataSource && !searchMode) { loadNext(q); return; }
       if (data === "s" && q.dataSource && !searchMode) { searchMode = true; editor.setText(""); refresh(); return; }
       if (searchMode) {
-        if (matchesKey(data, Key.enter)) { const search = editor.getText(); searchMode = false; pages.set(q.id, 1); void reload(search); return; }
+        if (matchesKey(data, Key.enter)) { const value = editor.getText(); searchMode = false; search(q, value); return; }
         editor.handleInput(data); refresh(); return;
       }
       if (customMode) {

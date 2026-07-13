@@ -14,9 +14,11 @@ function mapItem(raw: unknown, source: DataSource): OptionItem {
   if (!raw || typeof raw !== "object") throw new Error("Remote option mapping failed: item is not an object");
   const item = raw as Record<string, unknown>;
   const id = item[source.idField ?? "id"];
-  const label = item[source.labelField ?? "label"];
-  if (!((typeof id === "string" && id.length) || typeof id === "number") || typeof label !== "string" || !label.length) throw new Error("Remote option mapping failed: id or label is invalid");
-  const result: OptionItem = { id, label };
+  const rawLabel = item[source.labelField ?? "label"];
+  const validId = (typeof id === "string" && id.trim().length > 0) || (typeof id === "number" && Number.isFinite(id));
+  const validLabel = (typeof rawLabel === "string" && rawLabel.trim().length > 0) || (typeof rawLabel === "number" && Number.isFinite(rawLabel));
+  if (!validId || !validLabel) throw new Error("Remote option mapping failed: id or label is invalid");
+  const result: OptionItem = { id: typeof id === "string" ? id.trim() : id, label: String(rawLabel).trim() };
   const children = item[source.childrenField ?? "children"];
   if (Array.isArray(children)) result.children = children.map(child => mapItem(child, source));
   if (source.extraFields?.length) result.extra = Object.fromEntries(source.extraFields.map(key => [key, item[key]]));

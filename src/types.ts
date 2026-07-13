@@ -70,6 +70,7 @@ export interface NormalizedQuestion {
   inputType: InputType;
   kind: "text" | "date" | "single" | "multiple" | "confirm";
   options?: OptionItem[];
+  presentationOptions?: OptionItem[];
   dataSource?: DataSource;
   dateFormat?: string;
   required: boolean;

@@ -22,6 +22,11 @@ describe("compatibility normalization", () => {
     expect(() => normalizeAnswer(multiple, ["custom one", "custom two"])).toThrow("只能填写一个其他回答");
     const tree = normalizeRequest({ question: "Tree", inputType: "treeSelect", options: [{ id: "root", label: "Root", children: [{ id: "child", label: "Child" }] }], default: "root" }).questions[0]!;
     expect(normalizeAnswer(tree, "child")).toBe("child");
+    expect(() => normalizeRequest({
+      question: "Flat select", inputType: "select",
+      options: [{ id: "root", label: "Root", children: [{ id: "child", label: "Child" }] }],
+      default: "child",
+    })).toThrow("答案必须匹配一个可选项");
   });
 
   it("normalizes a JSON-stringified multiple-choice default produced by a model tool call", () => {
@@ -36,6 +41,29 @@ describe("compatibility normalization", () => {
     expect(question.default).toEqual(["typescript"]);
   });
 
+  it("stores every static choice default in canonical de-duplicated answer form", () => {
+    const options = [{ id: 0, label: "Numeric zero" }, { id: "0", label: "String zero" }];
+    const cases = [
+      { default: "Numeric zero", expected: 0 },
+      { default: { id: 0, label: "ignored" }, expected: 0 },
+      { default: 0, expected: 0 },
+      { default: "string:0", expected: "0" },
+    ] as const;
+
+    for (const item of cases) {
+      const question = normalizeRequest({ question: "Pick", options, default: item.default }).questions[0]!;
+      expect(question.default).toEqual(item.expected);
+    }
+
+    const multiple = normalizeRequest({
+      question: "Pick many",
+      options,
+      multiple: true,
+      default: JSON.stringify(["Numeric zero", { id: 0, label: "ignored" }, "string:0"]),
+    }).questions[0]!;
+    expect(multiple.default).toEqual([0, "0"]);
+  });
+
   it("keeps optional empty answers but blocks required empty answers", () => {
     const optional = normalizeRequest({ question: "Optional", default: "suggested" }).questions[0]!;
     const required = normalizeRequest({ question: "Required", default: "suggested", required: true }).questions[0]!;
@@ -46,7 +74,9 @@ describe("compatibility normalization", () => {
   it("returns dates unchanged and validates grouped identity uniqueness", () => {
     const date = normalizeRequest({ question: "When", inputType: "date", dateFormat: "yyyy-MM-dd", default: "2026-07-13" }).questions[0]!;
     expect(normalizeAnswer(date, "2026-07-14")).toBe("2026-07-14");
-    expect(() => normalizeAnswer(date, "2026-02-30")).toThrow("dateFormat");
+    expect(normalizeAnswer(date, "business-day-after-close")).toBe("business-day-after-close");
+    expect(normalizeAnswer(date, "")).toBe("");
+    expect(() => normalizeRequest({ question: "When", inputType: "date", dateFormat: "yyyy-MM-dd", default: "2026/07/13" })).toThrow("default");
     expect(() => normalizeRequest({ question: "When", inputType: "date", dateFormat: "MM-dd", default: "07-13" })).toThrow("year, month, and day");
     expect(() => normalizeRequest({ questions: [{ id: "same", question: "A", default: "a" }, { id: "same", question: "B", default: "b" }] })).toThrow("ids must be unique");
   });

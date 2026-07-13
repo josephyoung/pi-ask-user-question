@@ -79,12 +79,14 @@ function normalizeOne(raw: RawQuestion, fallbackId: string): NormalizedQuestion 
   const defaultValue = kind === "multiple" ? normalizeMultipleDefault(suppliedDefault) : suppliedDefault;
   if (kind !== "confirm" && defaultValue === undefined) throw new Error("默认答案缺失：每个非确认问题都必须提供非空 default 推荐值");
   if (typeof defaultValue === "string" && !defaultValue.trim()) throw new Error("默认答案无效：default 必须是非空推荐值，不能是空字符串");
+  if (kind === "date" && typeof defaultValue === "string" && raw.dateFormat && !matchesDateFormat(defaultValue, String(raw.dateFormat).trim())) {
+    throw new Error(`Date default must match dateFormat: ${String(raw.dateFormat).trim()}`);
+  }
   const result: NormalizedQuestion = { id, question, inputType: finalType, kind, required: raw.required === true };
   if (options) result.options = options;
   if (dataSource) result.dataSource = dataSource;
   if (finalType === "date") result.dateFormat = String(raw.dateFormat).trim();
-  if (defaultValue !== undefined) result.default = defaultValue;
-  if (defaultValue !== undefined) normalizeAnswer(result, defaultValue);
+  if (defaultValue !== undefined) result.default = normalizeAnswer(result, defaultValue);
   return result;
 }
 
@@ -126,14 +128,13 @@ export function normalizeAnswer(question: NormalizedQuestion, value: AnswerInput
   if (question.kind === "text" || question.kind === "date") {
     if (typeof value !== "string") throw new Error("答案不能为空");
     if (question.required && !value.trim()) throw new Error("答案不能为空");
-    if (question.kind === "date" && value && question.dateFormat && !matchesDateFormat(value, question.dateFormat)) throw new Error(`日期答案必须匹配 dateFormat: ${question.dateFormat}`);
     return question.kind === "text" ? value.trim() : value;
   }
   if (question.kind === "multiple") {
     if (!Array.isArray(value)) throw new Error("请至少选择一个选项");
     if (question.required && value.length === 0) throw new Error("请至少选择一个选项");
-    const ids = value.map(v => normalizeChoice(question, v));
-    if (new Set(ids.map(optionKey)).size !== ids.length) throw new Error("不能重复选择同一选项");
+    const ids = value.map(v => normalizeChoice(question, v))
+      .filter((id, index, all) => all.findIndex(candidate => optionKey(candidate) === optionKey(id)) === index);
     if (question.options?.some(isOtherOption)) {
       const known = flattenOptions(question.options).filter(option => !isOtherOption(option));
       const customCount = ids.filter(id => !known.some(option => option.id === id || String(option.id) === String(id))).length;
@@ -164,7 +165,8 @@ function matchesDateFormat(value: string, pattern: string): boolean {
 function normalizeChoice(question: NormalizedQuestion, value: string | number | OptionItem): OptionId {
   const candidate = isOptionObject(value) ? value.id : typeof value === "string" ? value.trim() : value;
   if (!isOptionId(candidate)) throw new Error("请选择一个有效选项");
-  const options = flattenOptions(question.options ?? []);
+  const catalog = question.presentationOptions ?? question.options ?? [];
+  const options = question.inputType === "treeSelect" ? flattenOptions(catalog) : catalog;
   if (!options.length) return candidate;
   const exact = options.find(o => o.id === candidate);
   if (exact && !isOtherOption(exact)) return exact.id;
