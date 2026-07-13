@@ -20,7 +20,7 @@ type Scenario = {
 };
 
 const root = resolve(import.meta.dirname, "..");
-const piExecutable = join(resolve(process.execPath, ".."), "pi");
+const piExecutable = join(root, "node_modules", ".bin", "pi");
 let sandbox = "";
 let project = "";
 let state = "";
