@@ -1,5 +1,5 @@
 {
-  "name": "pi-ask-user-question",
+  "name": "@yangkyo821/pi-ask-user-question",
   "version": "0.1.0",
   "description": "Native ask_user_question extension for Pi Coding Agent",
   "type": "module",
@@ -9,6 +9,13 @@
     "human-in-the-loop"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/josephyoung/pi-ask-user-question.git"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "files": [
     "src",
     "README.md",

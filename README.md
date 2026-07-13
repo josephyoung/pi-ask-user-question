@@ -5,8 +5,10 @@ Native `ask_user_question` extension for Pi Coding Agent. Simple single question
 ## Install
 
 ```sh
-pi install git:github.com/josephyoung/pi-ask-user-question
+pi install @yangkyo821/pi-ask-user-question
 ```
+
+To install directly from GitHub instead, use `pi install git:github.com/josephyoung/pi-ask-user-question`.
 
 The package supports `@earendil-works/pi-coding-agent` versions `>=0.80.2 <0.81.0`.
 
