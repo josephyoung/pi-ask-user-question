@@ -267,6 +267,23 @@ describe("extension public tool", () => {
     await expect(createTool().execute("abort", { question: "Date", inputType: "date", dateFormat: "yyyy-MM-dd", default: "2026-07-13" }, undefined, undefined, aborted)).rejects.toThrow("Question was aborted");
   });
 
+  it("does not report an undefined answer when the Agent aborts as custom UI settles", async () => {
+    const controller = new AbortController();
+    const ctx = context();
+    ctx.ui.custom = vi.fn(async () => {
+      controller.abort();
+      return { kind: "answered", answers: {}, disposeCount: 1 };
+    });
+
+    await expect(createTool().execute("abort-race", {
+      question: "Enable features",
+      multiple: true,
+      required: true,
+      options: ["Search", "Export"],
+      default: ["Search"],
+    }, controller.signal, undefined, ctx)).rejects.toThrow("Question was aborted");
+  });
+
   it("releases Agent-turn pending state after an unexpected host UI failure at the component seam", async () => {
     const tool = createTool();
     const controller = new AbortController();
