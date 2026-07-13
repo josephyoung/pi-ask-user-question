@@ -1,5 +1,5 @@
 {
-  "name": "@yangkyo821/pi-ask-user-question",
+  "name": "@josephyoung/pi-ask-user-qusetion",
   "version": "0.1.0",
   "description": "Native ask_user_question extension for Pi Coding Agent",
   "type": "module",
