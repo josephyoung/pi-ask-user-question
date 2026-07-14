@@ -80,8 +80,11 @@ describe("extension public tool", () => {
     ] };
     ctx.ui.custom = vi.fn(async (factory: any) => new Promise(resolve => {
       const component = factory(testTui(), testTheme, {}, resolve);
+      expect(component.render(80).join("\n")).toContain("Department: Engineering");
+      expect(component.render(80).join("\n")).toContain("Language: TypeScript");
       component.handleInput("\u001b[B");
       component.handleInput("\r");
+      expect(component.render(80).join("\n")).toContain("Department: Finance");
       component.handleInput("\u001b[B");
       component.handleInput("\r");
     }));
@@ -94,6 +97,25 @@ describe("extension public tool", () => {
     } as any, { args, toolCallId: "rendered", state: {}, lastComponent: undefined } as any).render(80).join("\n");
     expect(rendered).toContain("Department: Finance");
     expect(rendered).toContain("Language: Python");
+  });
+
+  it("renders grouped multiple and zero-valued choices as labels while preserving IDs", async () => {
+    let rendered = "";
+    const ctx = formContext(component => {
+      rendered = component.render(80).join("\n");
+      component.handleInput("\u0013");
+    });
+
+    const result = await createTool().execute("grouped-labels", { questions: [
+      { id: "plan", question: "Plan", options: [{ id: 1, label: "Conservative" }], default: 1 },
+      { id: "languages", question: "Languages", options: [{ id: "ts", label: "TypeScript" }, { id: "py", label: "Python" }], multiple: true, default: ["ts", "py"] },
+      { id: "zero", question: "Zero type", options: [{ id: 0, label: "Number" }], default: 0 },
+    ] }, undefined, undefined, ctx);
+
+    expect(rendered).toContain("Plan: Conservative");
+    expect(rendered).toContain("Languages: TypeScript, Python");
+    expect(rendered).toContain("Zero type: Number");
+    expect(result.details).toEqual({ status: "answered", answer: { plan: 1, languages: ["ts", "py"], zero: 0 } });
   });
 
   it("renders labels for remote options loaded after the form opens", async () => {
@@ -432,14 +454,14 @@ describe("extension public tool", () => {
       await vi.waitFor(() => expect(component.render(80).join("\n")).toContain("Two"));
       component.handleInput("n");
       await vi.waitFor(() => expect(component.render(80).join("\n")).toContain("HTTP 503"));
-      expect(component.render(80).join("\n")).toContain("Remote: one");
+      expect(component.render(80).join("\n")).toContain("Remote: One");
       component.handleInput("r");
       await vi.waitFor(() => expect(component.render(80).join("\n")).toContain("Three"));
       component.handleInput("s");
       component.handleInput("needle");
       component.handleInput("\r");
       await vi.waitFor(() => expect(component.render(80).join("\n")).toContain("Search two"));
-      expect(component.render(80).join("\n")).toContain("Remote: one");
+      expect(component.render(80).join("\n")).toContain("Remote: One");
       component.handleInput("n");
       await vi.waitFor(() => expect(component.render(80).join("\n")).toContain("Search three"));
       component.handleInput("\u001b");

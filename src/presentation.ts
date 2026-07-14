@@ -16,14 +16,14 @@ export const requiresCustomPresentation = (request: NormalizedRequest) => {
     || Boolean(question.dataSource);
 };
 
-function displayQuestionAnswer(question: NormalizedQuestion, answer: Answer): Answer {
+export function displayQuestionAnswer(question: NormalizedQuestion, answer: Answer): Answer {
   if (question.kind !== "single" && question.kind !== "multiple") return answer;
   const options = flattenOptions(question.presentationOptions ?? question.options ?? []);
   const label = (value: string | number) => options.find(option => option.id === value)?.label ?? value;
   return Array.isArray(answer) ? answer.map(label) : typeof answer === "boolean" ? answer : label(answer);
 }
 
-function formatDisplayed(value: Answer): string {
+export function formatDisplayed(value: Answer): string {
   return Array.isArray(value) ? value.join(", ") : String(value);
 }
 
