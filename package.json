@@ -28,6 +28,7 @@
     ]
   },
   "scripts": {
+    "mock:api": "node scripts/mock-project-api.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:unit": "vitest run test/contract.test.ts test/normalize.test.ts test/data-source.test.ts test/extension.test.ts",
