@@ -31,4 +31,4 @@ npm run test:acceptance
 npm test
 ```
 
-The acceptance suite creates temporary project and Pi-state directories, installs a snapshot of this package through a real Git URL, launches the system `pi` executable in a PTY, and removes all temporary resources afterward.
+The acceptance suite creates temporary project and Pi-state directories, installs a snapshot of this package through a real Git URL, launches the system `pi` executable in a PTY, and removes all temporary resources afterward. See [E2E test requirements](docs/e2e-test-requirements.md) for the required automated and manual scenarios, including the remote pagination mock API.
