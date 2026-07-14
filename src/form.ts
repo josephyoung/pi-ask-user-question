@@ -2,7 +2,7 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import { Editor, Key, matchesKey, type EditorTheme, type TUI } from "@earendil-works/pi-tui";
 import { loadOptions } from "./data-source.js";
 import { isOtherOption, normalizeAnswer } from "./normalize.js";
-import { usesTextEditor } from "./presentation.js";
+import { displayQuestionAnswer, formatDisplayed, usesTextEditor } from "./presentation.js";
 import type { Answer, AnswerInput, NormalizedQuestion, NormalizedRequest, OptionItem } from "./types.js";
 
 export type FormOutcome =
@@ -177,7 +177,8 @@ export function createQuestionForm(
         lines.push(theme.fg("muted", `Question ${index + 1}/${request.questions.length} · Tab/Shift+Tab navigate · Ctrl+S submit`));
         for (const [questionIndex, question] of request.questions.entries()) {
           const value = answers.get(question.id);
-          lines.push(`${questionIndex === index ? ">" : " "} ${question.question}: ${value === undefined ? "(optional)" : Array.isArray(value) ? value.join(", ") : String(value)}`);
+          const displayed = value === undefined ? "(optional)" : displayQuestionAnswer(question, value as Answer);
+          lines.push(`${questionIndex === index ? ">" : " "} ${question.question}: ${formatDisplayed(displayed)}`);
         }
         lines.push("");
       }
