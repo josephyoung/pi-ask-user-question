@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PROTOTYPE — 表单确认与返回修改</title>
+  <style>
+    :root { color-scheme: dark; --bg:#0b0e14; --panel:#121722; --line:#2a3344; --muted:#8e9aaf; --text:#edf2ff; --accent:#78a9ff; --ok:#66d19e; --warn:#ffca6a; --bad:#ff7c8b; }
+    * { box-sizing: border-box; }
+    body { margin:0; background:var(--bg); color:var(--text); font:15px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; }
+    main { width:min(1180px,calc(100% - 32px)); margin:30px auto 70px; }
+    h1,h2,h3,p { margin-top:0; }
+    h1 { font-size:22px; margin-bottom:8px; }
+    h2 { font-size:15px; color:var(--accent); letter-spacing:.04em; text-transform:uppercase; }
+    .intro { color:var(--muted); max-width:920px; }
+    .badge { display:inline-block; color:var(--warn); border:1px solid #6b5425; border-radius:999px; padding:2px 9px; margin-bottom:12px; }
+    .grid { display:grid; grid-template-columns:minmax(0,1.4fr) minmax(300px,.8fr); gap:16px; align-items:start; }
+    .panel { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px; }
+    .terminal { min-height:470px; box-shadow:0 18px 60px #0008; }
+    .terminal-title { display:flex; justify-content:space-between; color:var(--muted); border-bottom:1px solid var(--line); padding-bottom:12px; margin-bottom:16px; }
+    .form { border:1px solid var(--line); border-radius:10px; padding:14px; margin:12px 0; }
+    .form-title { display:flex; justify-content:space-between; gap:12px; font-weight:700; }
+    .field { display:grid; grid-template-columns:130px 1fr; gap:14px; padding:7px 0; border-top:1px dotted #283044; }
+    .field:first-of-type { margin-top:10px; }
+    .field span:first-child { color:var(--muted); }
+    .changed { color:var(--warn); }
+    .keys { display:flex; flex-wrap:wrap; gap:8px; margin-top:16px; }
+    kbd { border:1px solid #536078; border-bottom-width:2px; border-radius:5px; padding:2px 6px; background:#171e2c; }
+    .status { margin-top:16px; padding:10px 12px; border-left:3px solid var(--accent); background:#10192a; }
+    .status.ok { border-color:var(--ok); }
+    .status.error { border-color:var(--bad); }
+    dl { display:grid; grid-template-columns:150px 1fr; gap:6px 12px; margin:0; }
+    dt { color:var(--muted); }
+    dd { margin:0; overflow-wrap:anywhere; }
+    .actions { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:8px; }
+    button { appearance:none; border:1px solid #45516a; border-radius:8px; padding:9px 11px; background:#171e2c; color:var(--text); font:inherit; cursor:pointer; text-align:left; }
+    button:hover { border-color:var(--accent); background:#1b263a; }
+    button.primary { border-color:#3e6db5; background:#17325d; }
+    button.danger { border-color:#753f49; }
+    .walkthroughs { margin-top:16px; }
+    .tabs { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px; }
+    .tabs button { text-align:center; }
+    .tabs button.active { border-color:var(--accent); color:var(--accent); }
+    .steps { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+    .steps button.done { color:var(--muted); text-decoration:line-through; }
+    .arrow { color:var(--muted); }
+    .history { max-height:220px; overflow:auto; margin:0; padding-left:20px; color:var(--muted); }
+    .history li:first-child { color:var(--text); }
+    .hidden { display:none !important; }
+    @media (max-width:850px) { .grid { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+<main>
+  <span class="badge">PROTOTYPE — 不进入生产</span>
+  <h1>Submitted Form 最终确认与返回修改</h1>
+  <p class="intro"><strong>要回答的问题：</strong>Pi TUI 是否应该始终围绕一张可读的已提交表单卡工作：确认时只提供“确认 / 返回修改 / 取消”，修改时复用原字段并要求显式保存，所有动作携带 revision；进程恢复后重新打开同一界面，完成后以新的可见 Agent continuation 继续。</p>
+
+  <div class="grid">
+    <section class="panel terminal">
+      <div class="terminal-title"><span>ask_user_question</span><span id="terminalMeta"></span></div>
+      <div id="terminalBody"></div>
+    </section>
+
+    <aside class="panel">
+      <h2>完整状态</h2>
+      <dl id="stateView"></dl>
+      <h3 style="margin-top:18px">最近变化</h3>
+      <ol class="history" id="history"></ol>
+    </aside>
+  </div>
+
+  <section class="panel" style="margin-top:16px">
+    <h2>自由操作</h2>
+    <p class="intro">按钮始终可点；不合法或 revision 过期的动作不会改状态，会显示拒绝原因。</p>
+    <div class="actions">
+      <button data-action="CONFIRM" class="primary">确认当前版本</button>
+      <button data-action="RETURN_MODIFY">返回修改</button>
+      <button data-action="CHANGE_REASON">修改“申请原因”</button>
+      <button data-action="SAVE_REVISION">保存修改</button>
+      <button data-action="CANCEL_REVISION">放弃本次修改</button>
+      <button data-action="STALE_CONFIRM">发送过期确认</button>
+      <button data-action="PROCESS_EXIT">模拟进程退出</button>
+      <button data-action="RESUME_SESSION">恢复同一 Session</button>
+      <button data-action="CANCEL" class="danger">取消整个确认</button>
+      <button data-action="RESET">重置</button>
+    </div>
+  </section>
+
+  <section class="panel walkthroughs">
+    <h2>引导场景</h2>
+    <div class="tabs" id="tabs"></div>
+    <p class="intro" id="scenarioDescription"></p>
+    <div class="steps" id="steps"></div>
+  </section>
+</main>
+
+<script>
+  // Portable state machine. The DOM below only dispatches actions and renders state.
+  const initialState = () => ({
+    schemaVersion: 1,
+    interactionId: "confirm-01",
+    assistantTurnId: "turn-42",
+    phase: "awaiting_confirmation",
+    revision: 1,
+    restored: false,
+    suspended: false,
+    forms: [
+      { formId: "tool-leave", title: "请假申请", answers: { "请假类型": "事假", "开始时间": "2026-09-01 09:00", "申请原因": "个人事务" } },
+      { formId: "tool-contact", title: "紧急联系人", answers: { "姓名": "张三", "联系电话": "138****0000" } }
+    ],
+    draft: null,
+    continuation: null,
+    notice: "请检查两份已提交表单。",
+    noticeKind: "info",
+    history: ["r1 · 等待最终确认"]
+  });
+
+  const terminal = new Set(["confirmed", "cancelled", "interrupted"]);
+  const copy = value => structuredClone(value);
+
+  function transition(current, action) {
+    const state = copy(current);
+    const expected = action.expectedRevision ?? state.revision;
+    const reject = message => ({ ...state, notice: message, noticeKind: "error", history: [`拒绝 · ${message}`, ...state.history] });
+    const record = (message, kind = "info") => {
+      state.notice = message;
+      state.noticeKind = kind;
+      state.history.unshift(`r${state.revision} · ${message}`);
+      return state;
+    };
+
+    if (action.type === "RESET") return initialState();
+    if (action.type === "PROCESS_EXIT") {
+      if (terminal.has(state.phase)) return reject("终态无需恢复");
+      state.suspended = true;
+      return record("进程已退出；custom entry 快照仍在当前 branch。", "info");
+    }
+    if (action.type === "RESUME_SESSION") {
+      if (!state.suspended) return reject("当前 Session 没有等待恢复的交互");
+      state.suspended = false;
+      state.restored = true;
+      return record(state.phase === "revising" ? "已恢复并重新打开修改界面。" : "已恢复并重新打开确认界面。", "ok");
+    }
+    if (state.suspended) return reject("进程已退出；请先恢复同一 Session");
+    if (terminal.has(state.phase)) return reject(`交互已进入终态：${state.phase}`);
+    if (expected !== state.revision) return reject(`revision 冲突：收到 r${expected}，当前为 r${state.revision}`);
+
+    switch (action.type) {
+      case "RETURN_MODIFY":
+        if (state.phase !== "awaiting_confirmation") return reject("只有等待确认时才能返回修改");
+        state.phase = "revising";
+        state.revision += 1;
+        state.draft = copy(state.forms);
+        return record("进入修改模式；原提交保持不变，直到显式保存。", "info");
+      case "CHANGE_REASON":
+        if (state.phase !== "revising" || !state.draft) return reject("请先返回修改");
+        state.draft[0].answers["申请原因"] = state.draft[0].answers["申请原因"] === "家庭事务" ? "个人事务" : "家庭事务";
+        return record("草稿已修改；尚未保存为新 revision。", "info");
+      case "SAVE_REVISION":
+        if (state.phase !== "revising" || !state.draft) return reject("当前没有可保存的修改");
+        state.forms = state.draft;
+        state.draft = null;
+        state.phase = "awaiting_confirmation";
+        state.revision += 1;
+        return record("修改已保存；请重新确认完整表单。", "ok");
+      case "CANCEL_REVISION":
+        if (state.phase !== "revising") return reject("当前不在修改模式");
+        state.draft = null;
+        state.phase = "awaiting_confirmation";
+        state.revision += 1;
+        return record("已放弃草稿，回到修改前的已提交版本。", "info");
+      case "CONFIRM":
+        if (state.phase !== "awaiting_confirmation") return reject("保存或放弃修改后才能确认");
+        state.phase = "confirmed";
+        state.revision += 1;
+        state.continuation = state.restored ? { type: "confirmed", triggerNewAgentTurn: true, visible: true } : null;
+        return record(state.restored ? "已确认；写入终态并启动可见的恢复 continuation。" : "已确认；原工具调用正常结算。", "ok");
+      case "CANCEL":
+        state.phase = "cancelled";
+        state.revision += 1;
+        state.draft = null;
+        state.continuation = state.restored ? { type: "cancelled", triggerNewAgentTurn: true, visible: true } : null;
+        return record("整个确认流程已取消并进入终态。", "ok");
+      default:
+        return reject(`未知动作：${action.type}`);
+    }
+  }
+
+  const scenarios = [
+    { name:"直接确认", description:"检查两份表单后一次确认。观察终态只写一次。", steps:["CONFIRM"] },
+    { name:"修改后确认", description:"返回修改只产生草稿；保存后 revision 增加并再次要求完整确认。", steps:["RETURN_MODIFY","CHANGE_REASON","SAVE_REVISION","CONFIRM"] },
+    { name:"并发冲突", description:"模拟旧界面提交过期确认；动作被拒绝，当前状态不回退。", steps:["RETURN_MODIFY","SAVE_REVISION","STALE_CONFIRM","CONFIRM"] },
+    { name:"退出后恢复", description:"在修改中退出；同一 branch 恢复后重新打开修改界面，完成时启动新的 Agent continuation。", steps:["RETURN_MODIFY","PROCESS_EXIT","RESUME_SESSION","CHANGE_REASON","SAVE_REVISION","CONFIRM"] }
+  ];
+
+  let state = initialState();
+  let activeScenario = 0;
+  let scenarioStep = 0;
+
+  function dispatch(type) {
+    const action = type === "STALE_CONFIRM"
+      ? { type:"CONFIRM", expectedRevision:Math.max(0,state.revision - 1) }
+      : { type };
+    state = transition(state, action);
+    render();
+  }
+
+  function renderForm(form, draftForm) {
+    const source = draftForm ?? form;
+    const fields = Object.entries(source.answers).map(([label,value]) => {
+      const changed = draftForm && form.answers[label] !== value;
+      return `<div class="field"><span>${label}</span><span class="${changed ? "changed" : ""}">${value}${changed ? " · 未保存" : ""}</span></div>`;
+    }).join("");
+    return `<div class="form"><div class="form-title"><span>${source.title}</span><span>${source.formId}</span></div>${fields}</div>`;
+  }
+
+  function renderTerminal() {
+    const meta = document.querySelector("#terminalMeta");
+    meta.textContent = `${state.phase} · r${state.revision}${state.restored ? " · restored" : ""}`;
+    const body = document.querySelector("#terminalBody");
+    if (state.suspended) {
+      body.innerHTML = `<p>Pi 进程已退出。</p><p class="intro">当前 branch 保留 r${state.revision} 快照。恢复后只重新打开未完成界面，不制造旧 tool result。</p>`;
+      return;
+    }
+    const forms = state.forms.map((form,index) => renderForm(form,state.draft?.[index])).join("");
+    const keys = state.phase === "awaiting_confirmation"
+      ? `<kbd>Enter</kbd> 确认全部 <kbd>m</kbd> 返回修改 <kbd>Esc</kbd> 取消`
+      : state.phase === "revising"
+        ? `<kbd>Tab</kbd> 切换字段 <kbd>Ctrl+S</kbd> 保存修改 <kbd>Esc</kbd> 放弃修改`
+        : `<kbd>终态</kbd> 只读`;
+    const continuation = state.continuation ? `<div class="status ok">新 Agent turn：${state.continuation.type} · visible=${state.continuation.visible}</div>` : "";
+    body.innerHTML = `${forms}<div class="keys">${keys}</div><div class="status ${state.noticeKind}">${state.notice}</div>${continuation}`;
+  }
+
+  function renderState() {
+    const rows = [
+      ["interactionId",state.interactionId], ["assistantTurnId",state.assistantTurnId], ["phase",state.phase],
+      ["revision",String(state.revision)], ["branch scope","current branch only"], ["restored",String(state.restored)],
+      ["suspended",String(state.suspended)], ["submitted forms",state.forms.map(f=>f.formId).join(", ")],
+      ["draft",state.draft ? "present (not canonical)" : "none"], ["continuation",state.continuation ? JSON.stringify(state.continuation) : "none"]
+    ];
+    document.querySelector("#stateView").innerHTML = rows.map(([k,v])=>`<dt>${k}</dt><dd>${v}</dd>`).join("");
+    document.querySelector("#history").innerHTML = state.history.map(x=>`<li>${x}</li>`).join("");
+  }
+
+  function renderScenarios() {
+    document.querySelector("#tabs").innerHTML = scenarios.map((s,i)=>`<button data-tab="${i}" class="${i===activeScenario ? "active" : ""}">${s.name}</button>`).join("");
+    document.querySelector("#scenarioDescription").textContent = scenarios[activeScenario].description;
+    document.querySelector("#steps").innerHTML = scenarios[activeScenario].steps.map((step,i)=>`${i ? '<span class="arrow">→</span>' : ''}<button data-step="${i}" class="${i<scenarioStep ? "done" : ""}">${step}</button>`).join("");
+  }
+
+  function render() { renderTerminal(); renderState(); renderScenarios(); }
+
+  document.addEventListener("click", event => {
+    const action = event.target.closest("[data-action]")?.dataset.action;
+    if (action) dispatch(action);
+    const tab = event.target.closest("[data-tab]")?.dataset.tab;
+    if (tab !== undefined) { activeScenario=Number(tab); scenarioStep=0; state=initialState(); render(); }
+    const step = event.target.closest("[data-step]")?.dataset.step;
+    if (step !== undefined) {
+      const index=Number(step);
+      if (index !== scenarioStep) return;
+      dispatch(scenarios[activeScenario].steps[index]);
+      scenarioStep += 1;
+      render();
+    }
+  });
+  render();
+</script>
+</body>
+</html>
