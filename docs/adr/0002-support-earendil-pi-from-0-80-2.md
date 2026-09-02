@@ -1,3 +1,3 @@
-# Support @earendil-works/pi-coding-agent from 0.80.2
+# Support @earendil-works/pi-coding-agent 0.82
 
-The extension supports `@earendil-works/pi-coding-agent@^0.80.2`, meaning versions from 0.80.2 up to but not including 0.81.0. Version 0.80.2 is the minimum because it is the Pi runtime consumed by the first known integrating application, while the caret range allows compatible 0.80.x releases without coupling the extension to that application. Automated tests run against the latest available compatible 0.80.x release rather than maintaining a separate minimum-version lane.
+This decision supersedes the earlier 0.80 line. The extension supports `@earendil-works/pi-coding-agent@^0.82.1`, meaning versions from 0.82.1 up to but not including 0.83.0. Development, typechecking, and real PTY acceptance use exact 0.82.1 so the public `prepareArguments`, sequential execution, session journal, model registry, and isolated `createAgentSession` boundaries are verified against the same runtime as Dano.

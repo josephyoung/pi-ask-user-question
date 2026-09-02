@@ -12,8 +12,11 @@ export const requiresCustomPresentation = (request: NormalizedRequest) => {
   return request.grouped
     || question.kind === "multiple"
     || question.kind === "date"
+    || question.kind === "capability"
+    || question.inputType === "textarea"
     || question.inputType === "treeSelect"
-    || Boolean(question.dataSource);
+    || Boolean(question.dataSource)
+    || question.fieldAssist;
 };
 
 export function displayQuestionAnswer(question: NormalizedQuestion, answer: Answer): Answer {
@@ -62,6 +65,12 @@ export class ResultPresentationStore {
     const first = result.content[0];
     if (!details) return new Text(first?.type === "text" ? first.text : "", 0, 0);
     if (details.status === "cancelled") return new Text(theme.fg("warning", "Cancelled"), 0, 0);
+    if (details.status === "invalid") return new Text(theme.fg("warning", details.error.message), 0, 0);
+    if (details.status === "confirmed") {
+      const lines = details.forms.flatMap(form => Object.entries(form.answer)
+        .map(([id, value]) => `${theme.fg("success", "✓ ")}${id}: ${formatDisplayed(value)}`));
+      return new Text(lines.join("\n"), 0, 0);
+    }
     const request = context.state.request ?? this.requests.get(context.toolCallId) ?? normalizeRequest(context.args);
     context.state.request = request;
     this.requests.delete(context.toolCallId);

@@ -57,6 +57,7 @@ const port = integer(process.env.PORT, 3000, 65535);
 
 const server = createServer((request, response) => {
   const url = new URL(request.url ?? "/", `http://${request.headers.host ?? `${host}:${port}`}`);
+  console.log(`[request] ${request.method ?? "UNKNOWN"} ${url.pathname}${url.search} authorization=${request.headers.authorization ? "present" : "absent"} cookie=${request.headers.cookie ? "present" : "absent"}`);
 
   if (request.method === "OPTIONS") {
     response.writeHead(204, {

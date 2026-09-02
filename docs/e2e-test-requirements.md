@@ -49,6 +49,15 @@ The real Pi acceptance suite must cover all of the following scenarios.
    - Never report `undefined` as a successful answer when abort and custom-UI settlement race.
    - Release pending form state so the next Agent turn can open a fresh question.
 
+7. **Submitted Form confirmation and recovery**
+   - Submit a grouped form and retain its returned `formId`.
+   - Confirm the complete read-only card, then repeat through Return to modify, Save, and final confirmation.
+   - Stop the Pi process while confirmation is open, resume the exact session, confirm the automatically restored card, and assert one durable visible continuation message (also the deduplication marker) plus a new Agent turn.
+
+8. **Field Assist**
+   - Generate and polish through real TUI shortcuts using the current Pi model.
+   - Verify the child session has no tools/resources, aborts with its parent, and does not add its prompt as a main-session message.
+
 ## Remote pagination mock API
 
 Run the repository mock API before the manual remote-data-source scenario:
@@ -91,6 +100,10 @@ Use this `ask_user_question` data source configuration:
 }
 ```
 
+The remote E2E must also create `$PI_CODING_AGENT_DIR/ask-user-question.auth.json`
+with a loopback origin/path rule whose values name test-only environment variables.
+The model-visible data source must not contain headers or cookies.
+
 The remote E2E must verify:
 
 1. The initial request uses `page=1&limit=2`, displays the first two projects and their descriptions, and reports `2 of 5` options loaded.
@@ -98,6 +111,7 @@ The remote E2E must verify:
 3. Pressing `s`, entering `报表`, and submitting the search resets pagination to page 1 and returns only the matching project tree.
 4. Tree children render beneath their parent; selecting `数据报表` returns `project-2-report`.
 5. The final result card uses the human-readable label, the tool result uses the canonical ID, and Pi continues without exiting.
+6. The mock server receives the configured authorization header/cookie only on the matching protected path, while an unmatched path remains anonymous.
 
 ## Release gate
 
@@ -108,4 +122,4 @@ npm run typecheck
 npm test
 ```
 
-For an npm release, rerun the relevant real Pi scenario with `PI_ACCEPTANCE_PACKAGE_SOURCE` set to the exact package version. A release is not verified merely because the model generated valid JSON; the installed artifact must render, accept input, submit the expected result, continue the Agent, and exit cleanly.
+For this migration and for every npm release, create an npm tarball and rerun the complete real Pi suite with `PI_ACCEPTANCE_PACKAGE_SOURCE` set to that exact tarball path. A package is not verified merely because the model generated valid JSON; the installed artifact must render, accept input, submit the expected result, continue the Agent, recover persisted state, and exit cleanly.
