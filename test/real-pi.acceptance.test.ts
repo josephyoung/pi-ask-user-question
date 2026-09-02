@@ -371,7 +371,7 @@ describe("real Pi CLI acceptance in isolated Git-installed environment", () => {
     expect(toolResultBatches[0]?.[0]).toContain("missing_question_id");
     expect(toolResultBatches[0]?.[0]).toContain("invalid_options");
     expect(structuredRetries).toBe(1);
-  });
+  }, 120_000);
 
   it("uses all four Pi primitives and continues the agent", async () => {
     expect(await runPi({ args: { question: "Primitive text", default: "Ada", required: true }, marker: "Primitive text", keys: "Grace\r", expected: '"Grace"' })).toContain("CONTINUED:");

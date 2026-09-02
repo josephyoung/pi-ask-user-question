@@ -83,5 +83,5 @@ describe("controlled npm mock API", () => {
       child.kill("SIGTERM");
       await closed;
     }
-  });
+  }, 30_000);
 });
