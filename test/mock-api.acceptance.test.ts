@@ -19,7 +19,7 @@ describe("controlled npm mock API", () => {
   it("runs search, pagination, tree mapping, canonical selection, and scoped auth", async () => {
     const port = await availablePort();
     const baseUrl = `http://127.0.0.1:${port}`;
-    const child = spawn("npm", ["run", "mock:api"], {
+    const child = spawn(process.execPath, ["scripts/mock-project-api.mjs"], {
       cwd: new URL("..", import.meta.url),
       env: { ...process.env, PORT: String(port) },
       stdio: ["ignore", "pipe", "pipe"],
