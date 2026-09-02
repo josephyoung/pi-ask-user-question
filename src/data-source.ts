@@ -1,14 +1,21 @@
 import type { DataSource, OptionItem } from "./types.js";
+import { fetchWithDataSourceCredentials, type DataSourceCredentialResolver } from "./data-source-auth.js";
 
 export interface LoadOptionsRequest { search?: string; page?: number }
 export interface LoadedOptions { options: OptionItem[]; total?: number; requestUrl: string }
+export interface RemoteOptionTransport {
+  request(url: URL, init: RequestInit, resolveCredentials?: DataSourceCredentialResolver): Promise<Response>;
+}
+
+export const fetchRemoteOptionTransport: RemoteOptionTransport = {
+  request: (url, init, resolveCredentials) => resolveCredentials
+    ? fetchWithDataSourceCredentials(url, init, resolveCredentials)
+    : fetch(url, init),
+};
 
 function atPath(value: unknown, path?: string): unknown {
   if (!path) return value;
   return path.split(".").reduce<unknown>((current, part) => current && typeof current === "object" ? (current as Record<string, unknown>)[part] : undefined, value);
-}
-function cookieHeader(cookies: Record<string, string> | undefined): string {
-  return Object.entries(cookies ?? {}).map(([key, value]) => `${key}=${value}`).join("; ");
 }
 function mapItem(raw: unknown, source: DataSource): OptionItem {
   if (!raw || typeof raw !== "object") throw new Error("Remote option mapping failed: item is not an object");
@@ -25,16 +32,21 @@ function mapItem(raw: unknown, source: DataSource): OptionItem {
   return result;
 }
 
-export async function loadOptions(source: DataSource, baseUrl: string | undefined, request: LoadOptionsRequest = {}, signal?: AbortSignal): Promise<LoadedOptions> {
+export async function loadOptions(
+  source: DataSource,
+  baseUrl: string | undefined,
+  request: LoadOptionsRequest = {},
+  signal?: AbortSignal,
+  resolveCredentials?: DataSourceCredentialResolver,
+  transport: RemoteOptionTransport = fetchRemoteOptionTransport,
+): Promise<LoadedOptions> {
   const url = new URL(source.endpoint, baseUrl);
   const params: Record<string, unknown> = { ...(source.params ?? {}) };
   if (source.searchParam && request.search !== undefined) params[source.searchParam] = request.search;
   if (source.pageParam) params[source.pageParam] = request.page ?? 1;
   if (source.pageSizeParam) params[source.pageSizeParam] = source.pageSize ?? 20;
   const method = source.method ?? "GET";
-  const headers = new Headers(source.headers);
-  const cookie = cookieHeader(source.cookies);
-  if (cookie) headers.set("Cookie", [headers.get("Cookie"), cookie].filter(Boolean).join("; "));
+  const headers = new Headers();
   let body: string | undefined;
   if (method === "GET") for (const [key, value] of Object.entries(params)) url.searchParams.set(key, typeof value === "string" ? value : JSON.stringify(value));
   else {
@@ -45,7 +57,9 @@ export async function loadOptions(source: DataSource, baseUrl: string | undefine
   const init: RequestInit = { method, headers };
   if (body !== undefined) init.body = body;
   if (signal !== undefined) init.signal = signal;
-  try { response = await fetch(url, init); }
+  try {
+    response = await transport.request(url, init, resolveCredentials);
+  }
   catch (cause) { throw new Error(`Remote options transport failed: ${cause instanceof Error ? cause.message : String(cause)}`); }
   if (!response.ok) throw new Error(`Remote options HTTP ${response.status}`);
   let json: unknown;

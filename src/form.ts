@@ -1,14 +1,26 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { Editor, Key, matchesKey, type EditorTheme, type TUI } from "@earendil-works/pi-tui";
-import { loadOptions } from "./data-source.js";
+import { loadOptions, type RemoteOptionTransport } from "./data-source.js";
 import { isOtherOption, normalizeAnswer } from "./normalize.js";
 import { displayQuestionAnswer, formatDisplayed, usesTextEditor } from "./presentation.js";
+import { getFieldAssistWarnings, type FieldAssistInput, type FieldAssistResult } from "./field-assist.js";
+import type { DataSourceCredentialResolver } from "./data-source-auth.js";
 import type { Answer, AnswerInput, NormalizedQuestion, NormalizedRequest, OptionItem } from "./types.js";
+import { questionCapabilities, type CapabilityProjection, type RestoredCapability, type SerializedCapabilityState } from "./capabilities.js";
 
 export type FormOutcome =
-  | { kind: "answered"; answers: Record<string, Answer>; disposeCount: number }
+  | { kind: "answered"; answers: Record<string, Answer>; capabilityStates: Record<string, SerializedCapabilityState>; disposeCount: number }
   | { kind: "cancelled"; disposeCount: number }
   | { kind: "aborted"; disposeCount: number };
+
+export interface QuestionFormOptions {
+  fieldAssist?: (
+    input: FieldAssistInput,
+    options: { signal: AbortSignal },
+  ) => Promise<FieldAssistResult>;
+  dataSourceCredentials?: DataSourceCredentialResolver;
+  remoteOptionTransport?: RemoteOptionTransport;
+}
 
 const flatten = (items: OptionItem[], depth = 0): Array<OptionItem & { depth: number }> => items.flatMap(item => [{ ...item, depth }, ...flatten(item.children ?? [], depth + 1)]);
 const defaultText = (q: NormalizedQuestion) => typeof q.default === "string" ? q.default : "";
@@ -23,6 +35,7 @@ export function createQuestionForm(
   done: (outcome: FormOutcome) => void,
   request: NormalizedRequest,
   signal?: AbortSignal,
+  formOptions: QuestionFormOptions = {},
 ) {
   let index = 0;
   let optionIndex = 0;
@@ -31,12 +44,28 @@ export function createQuestionForm(
   let settled = false;
   let searchMode = false;
   let customMode = false;
+  let fieldAssistRun = 0;
+  let fieldAssistAction: "regenerate" | "polish" | undefined;
+  let fieldAssistController: AbortController | undefined;
+  let fieldAssistWarning = "";
+  let fieldAssistError = "";
+  let remoteRun = 0;
+  const remoteControllers = new Map<string, { runId: number; controller: AbortController }>();
   const remoteStates = new Map<string, RemoteState>();
   const resolvedRemoteDefaults = new Set<string>();
   const answers = new Map<string, AnswerInput>();
   const errors = new Map<string, string>();
   const loading = new Set<string>();
+  const capabilityStates = new Map<string, RestoredCapability>();
   for (const q of request.questions) if (q.default !== undefined) answers.set(q.id, q.default);
+  for (const q of request.questions) {
+    if (!q.capability) continue;
+    capabilityStates.set(q.id, questionCapabilities.restore({
+      kind: q.capability.kind,
+      version: q.capability.version,
+      state: q.capability.state,
+    }));
+  }
   const editorTheme: EditorTheme = {
     borderColor: s => theme.fg("accent", s),
     selectList: {
@@ -47,12 +76,22 @@ export function createQuestionForm(
   const editor = new Editor(tui, editorTheme);
   editor.setText(defaultText(request.questions[0]!));
 
-  function refresh() { tui.requestRender(); }
+  function refresh() { if (!disposed) tui.requestRender(); }
   function settle(kind: FormOutcome["kind"]) {
     if (settled) return;
     settled = true;
     disposeResources();
-    if (kind === "answered") done({ kind, answers: Object.fromEntries(answers) as Record<string, Answer>, disposeCount });
+    if (kind === "answered") {
+      const serialized = Object.fromEntries(request.questions.flatMap(q => {
+        if (!q.capability) return [];
+        const restored = capabilityStates.get(q.id);
+        const state = restored?.kind === "ready"
+          ? restored.capability.serialize(restored.state)
+          : structuredClone(q.capability.state);
+        return [[q.id, { kind: q.capability.kind, version: q.capability.version, state } satisfies SerializedCapabilityState]];
+      }));
+      done({ kind, answers: Object.fromEntries(answers) as Record<string, Answer>, capabilityStates: serialized, disposeCount });
+    }
     else done({ kind, disposeCount });
   }
   const onAbort = () => settle("aborted");
@@ -92,17 +131,79 @@ export function createQuestionForm(
     if (current().dataSource && remoteState(current()).page === 0) void loadInitial(current());
     refresh();
   }
+
+  function runFieldAssist(action: "regenerate" | "polish") {
+    const q = current();
+    if (q.kind !== "text" || !q.fieldAssist || fieldAssistAction) return;
+    const currentValue = editor.getText();
+    fieldAssistWarning = getFieldAssistWarnings({
+      title: q.question,
+      ...(typeof q.default === "string" ? { prefill: q.default } : {}),
+    })[0]?.message ?? "";
+    fieldAssistError = "";
+    if (action === "polish" && !currentValue.trim()) {
+      fieldAssistError = "Please enter content before polishing";
+      refresh();
+      return;
+    }
+    if (!formOptions.fieldAssist) {
+      fieldAssistError = "Field Assist is unavailable for the current model";
+      refresh();
+      return;
+    }
+    const runId = ++fieldAssistRun;
+    const controller = new AbortController();
+    fieldAssistController = controller;
+    fieldAssistAction = action;
+    refresh();
+    void formOptions.fieldAssist({
+      action,
+      fieldType: q.inputType === "textarea" ? "textarea" : "input",
+      title: q.question,
+      currentValue,
+      ...(typeof q.default === "string" ? { prefill: q.default } : {}),
+    }, { signal: controller.signal }).then(result => {
+      if (disposed || fieldAssistRun !== runId) return;
+      editor.setText(result.value);
+      answers.set(q.id, result.value);
+      fieldAssistWarning = result.metadata.warnings?.[0]?.message ?? fieldAssistWarning;
+    }).catch(cause => {
+      if (disposed || fieldAssistRun !== runId) return;
+      editor.setText(currentValue);
+      answers.set(q.id, currentValue);
+      fieldAssistError = cause instanceof Error ? cause.message : String(cause);
+    }).finally(() => {
+      if (disposed || fieldAssistRun !== runId) return;
+      fieldAssistAction = undefined;
+      fieldAssistController = undefined;
+      refresh();
+    });
+  }
   function finishQuestion() {
     if (request.grouped && index < request.questions.length - 1) move(1);
     else submit();
   }
   async function reload(q: NormalizedQuestion, attempt: RemoteAttempt) {
-    if (!q.dataSource || loading.has(q.id)) return;
+    if (!q.dataSource || disposed) return;
+    remoteControllers.get(q.id)?.controller.abort();
+    const runId = ++remoteRun;
+    const controller = new AbortController();
+    const abortRemote = () => controller.abort();
+    signal?.addEventListener("abort", abortRemote, { once: true });
+    remoteControllers.set(q.id, { runId, controller });
     loading.add(q.id); errors.delete(q.id); refresh();
     const state = remoteState(q);
     try {
       const query = attempt.search === undefined ? { page: attempt.page } : { search: attempt.search, page: attempt.page };
-      const loaded = await loadOptions(q.dataSource, request.dataSourceBaseUrl, query, signal);
+      const loaded = await loadOptions(
+        q.dataSource,
+        request.dataSourceBaseUrl,
+        query,
+        controller.signal,
+        formOptions.dataSourceCredentials,
+        formOptions.remoteOptionTransport,
+      );
+      if (disposed || remoteControllers.get(q.id)?.runId !== runId) return;
       q.options = attempt.append ? mergeUniqueOptions(q.options ?? [], loaded.options) : loaded.options;
       q.presentationOptions = attempt.append
         ? mergeUniqueOptions(q.presentationOptions ?? [], loaded.options)
@@ -121,10 +222,18 @@ export function createQuestionForm(
       }
       if (current().id === q.id) syncOptionIndex();
     } catch (cause) {
+      if (disposed || remoteControllers.get(q.id)?.runId !== runId) return;
       state.retry = attempt;
       errors.set(q.id, cause instanceof Error ? cause.message : String(cause));
     }
-    finally { loading.delete(q.id); refresh(); }
+    finally {
+      signal?.removeEventListener("abort", abortRemote);
+      if (remoteControllers.get(q.id)?.runId === runId) {
+        remoteControllers.delete(q.id);
+        loading.delete(q.id);
+        refresh();
+      }
+    }
   }
   function loadInitial(q: NormalizedQuestion) { return reload(q, { search: undefined, page: 1, append: false }); }
   function loadNext(q: NormalizedQuestion) {
@@ -144,6 +253,14 @@ export function createQuestionForm(
     let invalid = false;
     for (const q of request.questions) {
       try {
+        if (q.kind === "capability") {
+          const restored = capabilityStates.get(q.id);
+          if (!restored || restored.kind === "unavailable" || !q.capability) throw new Error("Question capability is unavailable; this field is read-only");
+          const validation = restored.capability.validate(q.capability.canonical, restored.state);
+          if (!validation.ok) throw new Error(validation.message);
+          normalized[q.id] = normalizeAnswer(q, validation.answer as AnswerInput);
+          continue;
+        }
         if (!answers.has(q.id)) {
           if (q.required) throw new Error(`Missing answer for grouped question: ${q.id}`);
           continue;
@@ -163,6 +280,12 @@ export function createQuestionForm(
   function disposeResources() {
     if (disposed) return;
     disposed = true; disposeCount += 1;
+    fieldAssistRun += 1;
+    fieldAssistController?.abort();
+    fieldAssistController = undefined;
+    for (const { controller } of remoteControllers.values()) controller.abort();
+    remoteControllers.clear();
+    loading.clear();
     signal?.removeEventListener("abort", onAbort);
   }
 
@@ -184,11 +307,30 @@ export function createQuestionForm(
       }
       lines.push(theme.fg("text", theme.bold(q.question)));
       if (q.dateFormat) lines.push(theme.fg("muted", `Format: ${q.dateFormat}`));
+      if (q.kind === "text" && q.fieldAssist) {
+        lines.push(theme.fg("dim", "Field Assist: Ctrl+G generate · Ctrl+P polish"));
+        if (fieldAssistWarning) lines.push(theme.fg("warning", fieldAssistWarning));
+        if (fieldAssistAction) {
+          lines.push(theme.fg("muted", `AI ${fieldAssistAction === "regenerate" ? "generating" : "polishing"}… Esc cancels assist`));
+        }
+        if (fieldAssistError) lines.push(theme.fg("warning", fieldAssistError));
+      }
       if (loading.has(q.id)) lines.push(theme.fg("muted", "Loading remote options…"));
       const error = errors.get(q.id); if (error) lines.push(theme.fg("warning", `${error} · press r to retry`));
       if (usesTextEditor(q) || searchMode || customMode) lines.push(...editor.render(Math.max(1, width - 2)).map(line => ` ${line}`));
       else if (q.kind === "confirm") {
         ["Yes", "No"].forEach((label, i) => lines.push(`${i === optionIndex ? ">" : " "} ${label}`));
+      }
+      else if (q.kind === "capability") {
+        const restored = capabilityStates.get(q.id);
+        if (!restored || restored.kind === "unavailable" || !q.capability) {
+          lines.push(theme.fg("warning", "Capability unavailable · read-only"));
+        } else {
+          const projection = restored.capability.project(q.capability.canonical, restored.state) as CapabilityProjection;
+          for (const line of projection.lines ?? [JSON.stringify(projection)]) lines.push(String(line));
+          const hints = projection.bindings?.map(binding => `${binding.key} ${binding.label ?? binding.command.type}`).join(" · ");
+          if (hints) lines.push(theme.fg("dim", hints));
+        }
       }
       else {
         opts.forEach((opt, i) => {
@@ -212,8 +354,15 @@ export function createQuestionForm(
     invalidate() {},
     handleInput(data: string) {
       const q = current(); const opts = options();
+      if (fieldAssistAction) {
+        if (matchesKey(data, "ctrl+c")) { fieldAssistController?.abort(); settle("aborted"); return; }
+        if (matchesKey(data, Key.escape)) { fieldAssistController?.abort(); return; }
+        return;
+      }
       if (matchesKey(data, "ctrl+c")) { settle("aborted"); return; }
       if (matchesKey(data, Key.escape)) { settle("cancelled"); return; }
+      if (q.kind === "text" && q.fieldAssist && matchesKey(data, "ctrl+g")) { runFieldAssist("regenerate"); return; }
+      if (q.kind === "text" && q.fieldAssist && matchesKey(data, "ctrl+p")) { runFieldAssist("polish"); return; }
       if (matchesKey(data, "ctrl+s")) { submit(); return; }
       if (request.grouped && matchesKey(data, Key.tab)) { move(1); return; }
       if (request.grouped && matchesKey(data, "shift+tab")) { move(-1); return; }
@@ -245,6 +394,24 @@ export function createQuestionForm(
           answers.set(q.id, editor.getText());
           finishQuestion();
         } else { editor.handleInput(data); refresh(); }
+        return;
+      }
+      if (q.kind === "capability") {
+        const restored = capabilityStates.get(q.id);
+        if (!restored || restored.kind === "unavailable" || !q.capability) return;
+        const projection = restored.capability.project(q.capability.canonical, restored.state) as CapabilityProjection;
+        const binding = projection.bindings?.find(candidate => candidate.key === data
+          || matchesKey(data, candidate.key as Parameters<typeof matchesKey>[1]));
+        if (!binding) return;
+        try {
+          const state = restored.capability.reduce(q.capability.canonical, restored.state, binding.command);
+          void restored.capability.serialize(state);
+          capabilityStates.set(q.id, { kind: "ready", capability: restored.capability, state });
+          errors.delete(q.id);
+        } catch (cause) {
+          errors.set(q.id, cause instanceof Error ? cause.message : String(cause));
+        }
+        refresh();
         return;
       }
       if (matchesKey(data, Key.up)) { optionIndex = Math.max(0, optionIndex - 1); refresh(); return; }

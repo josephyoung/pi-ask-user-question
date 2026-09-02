@@ -47,13 +47,31 @@ describe("extension public tool", () => {
     expect(result.details).toEqual({ status: "answered", answer: "edited" });
   });
 
-  it("routes textarea, static single choice and confirmation to matching primitives", async () => {
+  it("routes an explicitly unassisted textarea through the abortable custom surface", async () => {
+    const ctx = formContext(component => component.handleInput("\u0013"));
+    const tool = createTool();
+    expect((await tool.execute("a", { question: "Bio", inputType: "textarea", fieldAssist: false, default: "bio" }, undefined, undefined, ctx)).details).toEqual({ status: "answered", answer: "bio" });
+    expect(ctx.ui.editor).not.toHaveBeenCalled();
+  });
+
+  it("aborts an unassisted textarea and releases the next question immediately", async () => {
+    const controller = new AbortController();
+    const ctx = formContext(() => controller.abort());
+    const tool = createTool();
+    await expect(tool.execute("textarea-abort", {
+      question: "Bio", inputType: "textarea", fieldAssist: false, default: "bio",
+    }, controller.signal, undefined, ctx)).rejects.toThrow("question_cancelled");
+
+    const next = context();
+    await expect(tool.execute("after-textarea-abort", { question: "Next", default: "ready" }, undefined, undefined, next))
+      .resolves.toMatchObject({ details: { status: "answered", answer: "edited" } });
+  });
+
+  it("routes static single choice to a matching primitive", async () => {
     const ctx = context(); const tool = createTool();
-    expect((await tool.execute("a", { question: "Bio", inputType: "textarea", default: "bio" }, undefined, undefined, ctx)).details).toEqual({ status: "answered", answer: "long edited" });
     const selected = await tool.execute("b", { question: "Pick", options: [{ id: 1, label: "One" }, { id: 2, label: "Two" }], default: 1 }, undefined, undefined, ctx);
     expect(selected.details).toEqual({ status: "answered", answer: 2 });
     expect(selected.content[0]?.text).toBe("User answered the question: 2. Continue with this answer.");
-    expect((await tool.execute("c", { question: "Proceed?", confirm: true }, undefined, undefined, ctx)).details).toEqual({ status: "answered", answer: false });
     expect(ctx.ui.custom).not.toHaveBeenCalled();
   });
 
@@ -90,7 +108,7 @@ describe("extension public tool", () => {
     }));
 
     const result = await tool.execute("rendered", args, undefined, undefined, ctx);
-    expect(result.details).toEqual({ status: "answered", answer: { department: 2, language: "py" } });
+    expect(result.details).toEqual({ status: "answered", formId: "rendered", answer: { department: 2, language: "py" } });
     expect(result.content[0]?.text).toContain('{"department":2,"language":"py"}');
     const rendered = tool.renderResult?.(result as any, { expanded: false, isPartial: false }, {
       fg: (_name: string, text: string) => text, bg: (_name: string, text: string) => text, bold: (text: string) => text,
@@ -115,7 +133,7 @@ describe("extension public tool", () => {
     expect(rendered).toContain("Plan: Conservative");
     expect(rendered).toContain("Languages: TypeScript, Python");
     expect(rendered).toContain("Zero type: Number");
-    expect(result.details).toEqual({ status: "answered", answer: { plan: 1, languages: ["ts", "py"], zero: 0 } });
+    expect(result.details).toEqual({ status: "answered", formId: "grouped-labels", answer: { plan: 1, languages: ["ts", "py"], zero: 0 } });
   });
 
   it("renders labels for remote options loaded after the form opens", async () => {
@@ -140,7 +158,7 @@ describe("extension public tool", () => {
     try {
       const tool = createTool();
       const result = await tool.execute("remote-render", args, undefined, undefined, ctx);
-      expect(result.details).toEqual({ status: "answered", answer: { remote: 7 } });
+      expect(result.details).toEqual({ status: "answered", formId: "remote-render", answer: { remote: 7 } });
       expect(result.content[0]?.text).toContain('{"remote":7}');
       const rendered = tool.renderResult(result as any, { expanded: false, isPartial: false }, {
         fg: (_name: string, text: string) => text,
@@ -186,7 +204,7 @@ describe("extension public tool", () => {
       { id: "name", question: "Name", default: "Ada", required: true },
       { id: "confirm", question: "Confirm", confirm: true },
     ] }, undefined, undefined, ctx);
-    expect(result.details).toEqual({ status: "answered", answer: { name: "Ada" } });
+    expect(result.details).toEqual({ status: "answered", formId: "group", answer: { name: "Ada" } });
     expect(ctx.ui.input).not.toHaveBeenCalled(); expect(ctx.ui.confirm).not.toHaveBeenCalled();
   });
 
@@ -208,7 +226,7 @@ describe("extension public tool", () => {
       required: true,
     }] }, undefined, undefined, ctx);
 
-    expect(result.details).toEqual({ status: "answered", answer: { choice: 2 } });
+    expect(result.details).toEqual({ status: "answered", formId: "recommended", answer: { choice: 2 } });
   });
 
   it("lets an optional grouped select clear its recommendation and omits the answer", async () => {
@@ -231,7 +249,7 @@ describe("extension public tool", () => {
       default: "Recommended",
     }] }, undefined, undefined, ctx);
 
-    expect(result.details).toEqual({ status: "answered", answer: {} });
+    expect(result.details).toEqual({ status: "answered", formId: "optional", answer: {} });
   });
 
   it("shows hierarchy only for treeSelect question forms", async () => {
@@ -373,12 +391,59 @@ describe("extension public tool", () => {
       await new Promise(done => setTimeout(done, 0));
       expect(fetch).toHaveBeenCalledTimes(1);
       component.handleInput("\u001b");
-    });
+    }, true);
 
     await withFetchStub(fetch, () => createTool().execute("remote-total", { questions: [{
         id: "remote", question: "Remote", inputType: "select", default: "one",
         dataSource: { type: "api", endpoint: "https://example.test/options", pageParam: "page", pageSizeParam: "limit", pageSize: 2, resultPath: "rows", totalPath: "total" },
       }] }, undefined, undefined, ctx));
+  });
+
+  it("aborts remote work on form cancellation and suppresses stale responses", async () => {
+    let firstAborted = false;
+    let cancelledRequestAborted = false;
+    const fetch = vi.fn((_input: string | URL | Request, init?: RequestInit) => {
+      if (fetch.mock.calls.length === 1) {
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            firstAborted = true;
+            reject(new DOMException("aborted", "AbortError"));
+          }, { once: true });
+        });
+      }
+      if (fetch.mock.calls.length === 3) {
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            cancelledRequestAborted = true;
+            reject(new DOMException("aborted", "AbortError"));
+          }, { once: true });
+        });
+      }
+      return Promise.resolve(new Response(JSON.stringify({ rows: [{ id: "fresh", label: "Fresh result" }] }), {
+        status: 200, headers: { "content-type": "application/json" },
+      }));
+    });
+    const ctx = formContext(async component => {
+      await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+      component.handleInput("s");
+      component.handleInput("fresh");
+      component.handleInput("\r");
+      await vi.waitFor(() => expect(component.render(80).join("\n")).toContain("Fresh result"));
+      expect(firstAborted).toBe(true);
+      component.handleInput("s");
+      component.handleInput("cancel");
+      component.handleInput("\r");
+      await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(3));
+      component.handleInput("\u001b");
+    });
+    const result = await withFetchStub(fetch as typeof globalThis.fetch, () => createTool().execute("remote-stale", {
+      questions: [{
+        id: "remote", question: "Remote", inputType: "select", default: "fresh",
+        dataSource: { type: "api", endpoint: "https://example.test/options", searchParam: "q", resultPath: "rows" },
+      }],
+    }, undefined, undefined, ctx));
+    expect(result.details).toEqual({ status: "cancelled" });
+    expect(cancelledRequestAborted).toBe(true);
   });
 
   it("continues after a full remote page and stops after a short page without total", async () => {
@@ -401,7 +466,7 @@ describe("extension public tool", () => {
       expect(fetch).toHaveBeenCalledTimes(2);
       expect(component.render(80).join("\n")).toContain("Three");
       component.handleInput("\u001b");
-    });
+    }, true);
 
     await withFetchStub(fetch, async () => {
       await createTool().execute("remote-short", { questions: [{
@@ -474,5 +539,58 @@ describe("extension public tool", () => {
       }] }, undefined, undefined, ctx);
       expect(seen.map(url => `${url.searchParams.get("q") ?? ""}:${url.searchParams.get("page")}`)).toEqual([":1", ":2", ":2", "needle:1", "needle:2"]);
     });
+  });
+
+  it("runs Field Assist inside the active text field and submits the validated value", async () => {
+    const model = { generateText: vi.fn().mockResolvedValue("Generated reason") };
+    const ctx = formContext(async component => {
+      const initial = component.render(80).join("\n");
+      expect(initial).toContain("Ctrl+G generate");
+      expect(initial).toContain("Ctrl+P polish");
+      component.handleInput("\u0007");
+      await vi.waitFor(() => expect(component.render(80).join("\n")).toContain("Generated reason"));
+      component.handleInput("\u0013");
+    }, true);
+
+    const result = await createTool({ fieldAssistModelFactory: () => model }).execute("assist", {
+      question: "Reason",
+      inputType: "textarea",
+      fieldAssist: true,
+      default: "Original reason",
+      required: true,
+    }, undefined, undefined, ctx);
+
+    expect(result.details).toEqual({ status: "answered", answer: "Generated reason" });
+    expect(model.generateText).toHaveBeenCalledOnce();
+  });
+
+  it("lets Esc abort only the active Field Assist run and keeps the form value", async () => {
+    let aborted = false;
+    const model = {
+      generateText: vi.fn(({ signal }: { signal: AbortSignal }) => new Promise<string>((_resolve, reject) => {
+        signal.addEventListener("abort", () => {
+          aborted = true;
+          reject(new DOMException("aborted", "AbortError"));
+        }, { once: true });
+      })),
+    };
+    const ctx = formContext(async component => {
+      component.handleInput("\u0007");
+      await vi.waitFor(() => expect(component.render(80).join("\n")).toContain("AI generating"));
+      component.handleInput("\u001b");
+      await vi.waitFor(() => expect(aborted).toBe(true));
+      await vi.waitFor(() => expect(component.render(80).join("\n")).toContain("Original reason"));
+      await vi.waitFor(() => expect(component.render(80).join("\n")).not.toContain("AI generating"));
+      component.handleInput("\u0013");
+    }, true);
+
+    const result = await createTool({ fieldAssistModelFactory: () => model }).execute("assist-abort", {
+      question: "Reason",
+      inputType: "textarea",
+      fieldAssist: true,
+      default: "Original reason",
+    }, undefined, undefined, ctx);
+
+    expect(result.details).toEqual({ status: "answered", answer: "Original reason" });
   });
 });
