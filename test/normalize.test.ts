@@ -29,15 +29,20 @@ describe("compatibility normalization", () => {
     expect(normalizeRequest({ question: "Required", required: "true" } as any).questions[0]?.required).toBe(true);
   });
 
-  it("treats confirm:true only as Submitted Form confirmation", () => {
+  it("keeps legacy ordinary confirmation distinct from Submitted Form confirmation", () => {
     expect(normalizeRequest({ confirm: true, formIds: '["form-1","form-1","form-2"]' } as any)).toMatchObject({
       kind: "confirmation",
       formIds: ["form-1", "form-2"],
     });
     expect(normalizeRequest({ question: "Proceed?", confirm: true } as any)).toMatchObject({
-      kind: "confirmation",
-      formIds: [],
+      kind: "questions",
+      grouped: false,
+      questions: [{ kind: "confirm", question: "Proceed?" }],
     });
+    expect(normalizeRequest({ question: "Review this form?", confirm: true, formIds: ["form-1"] } as any))
+      .toMatchObject({ kind: "confirmation", formIds: ["form-1"] });
+    expect(normalizeRequest({ confirm: true } as any))
+      .toMatchObject({ kind: "confirmation", formIds: [] });
     expect(normalizeRequest({ question: "Not a confirmation", confirm: "false" } as any).questions[0])
       .toMatchObject({ kind: "text", inputType: "text" });
     expect(normalizeRequest({ question: "Still not a confirmation", confirm: "0" } as any).questions[0])

@@ -22,7 +22,7 @@ The tool uses Pi 0.82.1 `prepareArguments` before TypeBox validation and declare
 
 The model-visible schema follows the pinned Dano contract, with only `dataSourceBaseUrl` added for the CLI environment. It does not expose remote request headers, cookies, credential profiles, environment variable names, or Field Assist model configuration.
 
-`confirm:true` means confirmation of previously submitted grouped forms, canonically selected by `formIds`. Ordinary yes/no questions use a normal choice field. The old ordinary `question + confirm:true` behavior is removed without a compatibility lane.
+`confirm:true` means confirmation of previously submitted grouped forms when canonically selected by `formIds`. Ordinary yes/no questions use a normal choice field. For backward compatibility, top-level `question + confirm:true` without `formId` or `formIds` remains an ordinary boolean confirmation.
 
 Result details are:
 

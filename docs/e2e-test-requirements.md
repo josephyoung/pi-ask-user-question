@@ -58,6 +58,10 @@ The real Pi acceptance suite must cover all of the following scenarios.
    - Generate and polish through real TUI shortcuts using the current Pi model.
    - Verify the child session has no tools/resources, aborts with its parent, and does not add its prompt as a main-session message.
 
+9. **Legacy ordinary confirmation**
+   - Treat top-level `question` plus `confirm:true`, without `formId` or `formIds`, as an ordinary boolean confirmation.
+   - Keep targeted Submitted Form confirmation routed through the durable confirmation workflow.
+
 ## Remote pagination mock API
 
 Run the repository mock API before the manual remote-data-source scenario:

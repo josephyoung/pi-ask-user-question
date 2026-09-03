@@ -17,7 +17,7 @@ The package supports `@earendil-works/pi-coding-agent` versions `>=0.82.1 <0.83.
 - Simple text and static single-choice questions use Pi primitives; grouped and advanced questions use the native TUI form.
 - Multiple choice, date, tree selection, remote options, and every grouped form route to `ctx.ui.custom()`.
 - Grouped answers are submitted atomically and return a durable `formId`.
-- `confirm:true` confirms one or more Submitted Forms. It supports a complete review card, return-to-modify revisions, restart recovery, and a visible continuation into a new Agent turn. Ordinary yes/no decisions use a normal choice question.
+- `confirm:true` with `formIds` confirms one or more Submitted Forms. It supports a complete review card, return-to-modify revisions, restart recovery, and a visible continuation into a new Agent turn. For compatibility, top-level `question` plus `confirm:true` without a form target opens an ordinary boolean confirmation; canonical ordinary yes/no decisions use a normal choice question.
 - Text fields support isolated Field Assist generation and polishing. The child session uses the current Pi model with reusable persisted provider authentication, without loading tools, extensions, skills, prompts, themes, or project context.
 - Namespaced, versioned custom field kinds can be added through the public Question capability registry; capability state is serialized into Submitted Form snapshots and restores read-only when unavailable.
 - Remote sources support GET/POST, params, search, pagination, mapping, relative endpoints, user-owned authentication, and field-local retry.

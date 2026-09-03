@@ -313,7 +313,9 @@ function confirmationSelection(raw: RawRequest) {
 }
 
 export function normalizeRequest(raw: RawRequest): NormalizedRequest {
-  if (normalizedBoolean(raw.confirm) === true && raw.questions === undefined) {
+  const hasConfirmationTarget = raw.formIds !== undefined || raw.formId !== undefined;
+  const hasOrdinaryQuestion = firstString(raw.question, raw.title, raw.label, raw.prompt) !== undefined;
+  if (normalizedBoolean(raw.confirm) === true && raw.questions === undefined && (hasConfirmationTarget || !hasOrdinaryQuestion)) {
     const selection = confirmationSelection(raw);
     return {
       kind: "confirmation",

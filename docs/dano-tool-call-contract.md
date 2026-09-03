@@ -19,8 +19,10 @@ The standalone CLI adds only `dataSourceBaseUrl` to resolve relative remote
 endpoints. Remote headers, cookies, credential rules, environment names, and
 Field Assist model settings are deliberately absent from model arguments.
 
-`confirm:true` never means an ordinary boolean prompt. It selects previously
-submitted grouped forms. Ordinary yes/no decisions use a normal choice field.
+Canonical `confirm:true` selects previously submitted grouped forms. Ordinary
+yes/no decisions use a normal choice field. The standalone extension additionally
+accepts legacy top-level `question + confirm:true` without a form target as an
+ordinary boolean confirmation compatibility input.
 
 ## Results
 
