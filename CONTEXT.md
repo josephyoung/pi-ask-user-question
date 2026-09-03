@@ -50,7 +50,8 @@ _Avoid_: Synthetic tool result, resurrected tool promise
 
 **Form confirmation**:
 Confirmation of one or more submitted forms by their stable identities; ordinary yes-or-no decisions are choice questions rather than this confirmation protocol.
-_Avoid_: Legacy `question + confirm:true`, generic confirmation
+Legacy top-level `question + confirm:true` without a form target remains accepted as an ordinary boolean confirmation compatibility input.
+_Avoid_: Using the compatibility input for new canonical calls, generic confirmation
 
 **Field Assist**:
 Optional generation and polishing assistance for text questions, isolated from the main Agent transcript and subject to the same safety and lifecycle boundaries as the form interaction.

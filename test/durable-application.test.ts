@@ -172,17 +172,18 @@ describe("Durable question application", () => {
     expect(result.details).toMatchObject({ status: "confirmed", confirmationOfToolCallId: "form-1" });
   });
 
-  it("rejects ordinary confirm:true when no Submitted Form is eligible", async () => {
+  it("accepts legacy ordinary confirm:true without a Submitted Form target", async () => {
     const tool = createTool({ journal: new InMemoryInteractionJournal() });
+    const ctx = context(() => {});
+    ctx.ui.confirm.mockResolvedValue(true);
+
     await expect(tool.execute("ordinary", {
       question: "Proceed?",
       confirm: true,
-    }, undefined, undefined, context(() => {}))).rejects.toSatisfy((error: unknown) => {
-      const parsed = JSON.parse((error as Error).message);
-      return parsed.status === "invalid"
-        && parsed.error.code === "invalid_confirmation_source"
-        && parsed.error.retryable === true;
+    }, undefined, undefined, ctx)).resolves.toMatchObject({
+      details: { status: "answered", answer: true },
     });
+    expect(ctx.ui.custom).not.toHaveBeenCalled();
   });
 
   it("returns Dano-compatible confirmation target shapes, reasons, fallback, and issue paths", async () => {

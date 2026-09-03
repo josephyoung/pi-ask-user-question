@@ -373,9 +373,10 @@ describe("real Pi CLI acceptance in isolated Git-installed environment", () => {
     expect(structuredRetries).toBe(1);
   }, 120_000);
 
-  it("uses all four Pi primitives and continues the agent", async () => {
+  it("uses Pi primitives and continues the agent", async () => {
     expect(await runPi({ args: { question: "Primitive text", default: "Ada", required: true }, marker: "Primitive text", keys: "Grace\r", expected: '"Grace"' })).toContain("CONTINUED:");
     expect(await runPi({ args: { question: "Primitive textarea", inputType: "textarea", default: "Long default", required: true }, marker: "Primitive textarea", keys: "\r", expected: "Long default" })).toContain("CONTINUED:");
+    expect(await runPi({ args: { question: "Legacy confirm", confirm: true }, marker: "Legacy confirm", keys: "\r", expected: "true" })).toContain("CONTINUED:");
     const primitiveSelect = await runPi({ args: { question: "Primitive select", options: [{ id: 1, label: "One" }, { id: 2, label: "Two" }], default: 1 }, marker: "Primitive select", keys: "\u001b[B\r", expected: "2" });
     expect(primitiveSelect).toContain("Primitive select: Two");
     expect(await runPi({ args: { question: "Ordinary decision", options: ["Yes", "No"], default: "Yes" }, marker: "Ordinary decision", keys: "\r", expected: '"Yes"' })).toContain("CONTINUED:");

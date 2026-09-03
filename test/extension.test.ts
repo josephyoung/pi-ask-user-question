@@ -76,6 +76,18 @@ describe("extension public tool", () => {
     expect(ctx.ui.custom).not.toHaveBeenCalled();
   });
 
+  it("routes legacy question plus confirm true to the ordinary confirmation primitive", async () => {
+    const ctx = context();
+    const result = await createTool().execute("legacy-confirm", {
+      question: "是否继续？",
+      confirm: true,
+    }, undefined, undefined, ctx);
+
+    expect(ctx.ui.confirm).toHaveBeenCalledWith("是否继续？", "", undefined);
+    expect(ctx.ui.custom).not.toHaveBeenCalled();
+    expect(result.details).toEqual({ status: "answered", answer: false });
+  });
+
   it("puts a static single-choice recommendation under the primitive cursor", async () => {
     const ctx = context();
     ctx.ui.select.mockImplementation(async (_title: string, values: string[]) => values[0]);
