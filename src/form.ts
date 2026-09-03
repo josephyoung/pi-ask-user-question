@@ -1,5 +1,5 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { Editor, Key, matchesKey, type EditorTheme, type TUI } from "@earendil-works/pi-tui";
+import { Editor, Key, matchesKey, truncateToWidth, type EditorTheme, type TUI } from "@earendil-works/pi-tui";
 import { loadOptions, type RemoteOptionTransport } from "./data-source.js";
 import { isOtherOption, normalizeAnswer } from "./normalize.js";
 import { displayQuestionAnswer, formatDisplayed, usesTextEditor } from "./presentation.js";
@@ -301,7 +301,7 @@ export function createQuestionForm(
         for (const [questionIndex, question] of request.questions.entries()) {
           const value = answers.get(question.id);
           const displayed = value === undefined ? "(optional)" : displayQuestionAnswer(question, value as Answer);
-          lines.push(`${questionIndex === index ? ">" : " "} ${question.question}: ${formatDisplayed(displayed)}`);
+          lines.push(truncateToWidth(`${questionIndex === index ? ">" : " "} ${question.question}: ${formatDisplayed(displayed)}`, width));
         }
         lines.push("");
       }

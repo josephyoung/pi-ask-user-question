@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import { createTool } from "../src/index.js";
 import { normalizeRequest } from "../src/normalize.js";
 import { ResultPresentationStore } from "../src/presentation.js";
@@ -134,6 +135,26 @@ describe("extension public tool", () => {
     expect(rendered).toContain("Languages: TypeScript, Python");
     expect(rendered).toContain("Zero type: Number");
     expect(result.details).toEqual({ status: "answered", formId: "grouped-labels", answer: { plan: 1, languages: ["ts", "py"], zero: 0 } });
+  });
+
+  it("keeps grouped answer summaries within the terminal width", async () => {
+    const ctx = formContext(component => {
+      const lines = component.render(80);
+      expect(Math.max(...lines.map(visibleWidth))).toBeLessThanOrEqual(80);
+      component.handleInput("\u001b");
+    }, true);
+
+    await createTool().execute("summary-width", { questions: [
+      { id: "name", question: "姓名", default: "Ada科技和客户", required: true },
+      {
+        id: "description",
+        question: "发布说明",
+        inputType: "textarea",
+        default: "本次功能迁移已完成，涉及用户管理、订单处理与数据同步模块的整合与优化，相关逻辑已验证通过并上线。",
+        required: true,
+        fieldAssist: true,
+      },
+    ] }, undefined, undefined, ctx);
   });
 
   it("renders labels for remote options loaded after the form opens", async () => {

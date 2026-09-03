@@ -743,6 +743,23 @@ describe("real Pi CLI acceptance in isolated Git-installed environment", () => {
     expect(release).toContain("包含哪些能力: 结构化默认值, 远程分页");
   }, 120_000);
 
+  it("truncates long grouped summaries without crashing the real Pi renderer", async () => {
+    const output = await runPi({ args: { questions: [
+      { id: "name", question: "姓名", default: "Ada科技和客户", required: true },
+      {
+        id: "description",
+        question: "发布说明",
+        inputType: "textarea",
+        default: "本次功能迁移已完成，涉及用户管理、订单处理与数据同步模块的整合与优化，相关逻辑已验证通过并上线。",
+        required: true,
+        fieldAssist: true,
+      },
+    ] }, marker: "Question 1/2", keys: "\u0013", expected: '"description":"本次功能迁移已完成' });
+
+    expect(output).toContain("发布说明: 本次功能迁移已完成");
+    expect(output).not.toContain("exceeds terminal width");
+  }, 120_000);
+
   it("submits structured multiple-choice labels without toggling the selection on Enter", async () => {
     const output = await runPi({ args: {
       question: "Structured multiple",
