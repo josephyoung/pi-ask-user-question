@@ -9,7 +9,7 @@ An independently installable capability for Pi Coding Agent, owned and validated
 _Avoid_: Dano extension, Dano extraction
 
 **Supported Pi runtime**:
-The `@earendil-works/pi-coding-agent@^0.82.1` runtime family aligned with the pinned Dano baseline and used for publishing and compatibility verification; Pi 0.80.x is outside the migration target.
+The `@earendil-works/pi-coding-agent@^1.4.0` runtime family used for publishing and compatibility verification. Development and real CLI acceptance use exact 1.4.0; earlier runtime families are outside the current support range.
 _Avoid_: Dano runtime
 
 **Question**:

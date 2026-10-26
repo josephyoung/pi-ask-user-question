@@ -323,7 +323,7 @@ beforeAll(async () => {
   const lockedPi = realpathSync(piExecutable);
   const installOutput = await runAsync(process.execPath, [lockedPi, "install", installSource, "-l"], project, { PI_CODING_AGENT_DIR: state, NPM_CONFIG_CACHE: join(sandbox, "npm-cache") });
   expect(installOutput).toContain("Installed");
-  expect(run(process.execPath, [lockedPi, "--version"], project, { PI_CODING_AGENT_DIR: state }).trim()).toBe("0.82.1");
+  expect(run(process.execPath, [lockedPi, "--version"], project, { PI_CODING_AGENT_DIR: state }).trim()).toBe("1.4.0");
   writeFileSync(join(state, "models.json"), JSON.stringify({ providers: { acceptance: { baseUrl: `${baseUrl}/v1`, api: "openai-completions", apiKey: "test", compat: { supportsDeveloperRole: false, supportsReasoningEffort: false }, models: [{ id: "local", reasoning: false, contextWindow: 32000, maxTokens: 4096 }] } } }));
   const extensions = join(state, "extensions");
   mkdirSync(extensions);
