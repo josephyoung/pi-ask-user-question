@@ -10,7 +10,7 @@ pi install npm:@josephyoung/pi-ask-user-question
 
 To install directly from GitHub instead, use `pi install git:github.com/josephyoung/pi-ask-user-question`.
 
-The package supports `@earendil-works/pi-coding-agent` versions `>=0.82.1 <0.83.0`.
+The package supports `@earendil-works/pi-coding-agent` versions `>=1.4.0 <2.0.0`; development and real CLI acceptance use exact `1.4.0`.
 
 ## Tool behavior
 

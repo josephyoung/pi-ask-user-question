@@ -10,7 +10,7 @@ function parseOneLevel(value: unknown): unknown {
   }
 }
 
-/** Pi 0.82.1 compatibility shim that runs before TypeBox validation. */
+/** Pi argument normalization that runs before TypeBox validation. */
 export function prepareArguments(raw: unknown): Record<string, unknown> {
   const parsed = parseOneLevel(raw);
   if (!isRecord(parsed)) return { __invalidRequest: parsed };

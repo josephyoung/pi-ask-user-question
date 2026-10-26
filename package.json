@@ -1,6 +1,6 @@
 {
   "name": "@josephyoung/pi-ask-user-question",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Native ask_user_question extension for Pi Coding Agent",
   "type": "module",
   "keywords": [
@@ -36,13 +36,13 @@
     "test:acceptance": "vitest run test/real-pi.acceptance.test.ts"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "^0.82.1",
-    "@earendil-works/pi-tui": "^0.82.1",
+    "@earendil-works/pi-coding-agent": "^1.4.0",
+    "@earendil-works/pi-tui": "^1.4.0",
     "typebox": "*"
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "0.82.1",
-    "@earendil-works/pi-tui": "0.82.1",
+    "@earendil-works/pi-coding-agent": "1.4.0",
+    "@earendil-works/pi-tui": "1.4.0",
     "@types/node": "^22.15.0",
     "node-pty": "^1.0.0",
     "typebox": "^1.0.34",

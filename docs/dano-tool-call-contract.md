@@ -8,7 +8,7 @@ workflow and persistence decisions.
 ## Parameters
 
 The contract accepts Dano's tolerant aliases and one-level JSON-stringified
-collections through Pi 0.82.1 `prepareArguments`. Canonical calls use either:
+collections through Pi 1.4.0 `prepareArguments`. Canonical calls use either:
 
 - one question's top-level fields;
 - `title` plus `questions[]`, with every field setting inside its item; or

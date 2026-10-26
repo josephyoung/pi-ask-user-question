@@ -1,6 +1,6 @@
 # Dano `ask_user_question` full migration specification
 
-Status: approved for implementation
+Status: original migration specification; its Pi 0.82.1 baseline is historical. The supported runtime is now Pi 1.4.0 as recorded in package.json, README.md, and the executable real CLI acceptance suite.
 
 ## Fixed baselines
 
