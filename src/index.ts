@@ -15,6 +15,7 @@ import { createConfirmationCard, type ConfirmationCardOutcome } from "./confirma
 import type { RemoteOptionTransport } from "./data-source.js";
 import { QuestionFailureBudget, questionCancelled } from "./errors.js";
 import type { NormalizedQuestion, NormalizedRequest, RawRequest } from "./types.js";
+import { loadBlockedMessage } from "./program-status.js";
 
 export const ASK_USER_QUESTION_TOOL_NAME = "ask_user_question";
 export { groupedRetryError };
@@ -49,6 +50,7 @@ async function custom(
   remoteOptionTransport?: RemoteOptionTransport,
   failures?: QuestionFailureBudget,
   presentationTimeoutMs = 5_000,
+  readBlockedMessage: () => string = () => loadBlockedMessage(),
 ): Promise<FormOutcome> {
   const model = fieldAssistModelFactory?.(ctx) ?? createPiIsolatedFieldAssistModel({
     cwd: ctx.cwd,
@@ -56,7 +58,7 @@ async function custom(
     modelRegistry: ctx.modelRegistry,
   });
   const fieldAssist = createFieldAssistService({ model });
-  return presentCustom(ctx, signal, failures, presentationTimeoutMs, (tui, theme, done, scopedSignal) => createQuestionForm(
+  return presentCustom(ctx, signal, failures, presentationTimeoutMs, readBlockedMessage(), (tui, theme, done, scopedSignal) => createQuestionForm(
     tui, theme, done, request, scopedSignal,
     {
       fieldAssist: (input, options) => fieldAssist.assist(input, options),
@@ -71,6 +73,7 @@ async function presentCustom<T>(
   signal: AbortSignal | undefined,
   failures: QuestionFailureBudget | undefined,
   presentationTimeoutMs: number,
+  blockedMessage: string,
   factory: (tui: TUI, theme: Theme, done: (value: T) => void, signal: AbortSignal) => Component & { dispose?(): void },
 ): Promise<T> {
   const controller = new AbortController();
@@ -89,7 +92,7 @@ async function presentCustom<T>(
     interaction = ctx.ui.custom<T>((tui, theme, _keybindings, done) => {
       acknowledge();
       return factory(tui, theme, done, controller.signal);
-    });
+    }, { blocked: { kind: "question", message: blockedMessage } });
   } catch (cause) {
     signal?.removeEventListener("abort", abort);
     controller.abort();
@@ -127,8 +130,9 @@ function confirmation(
   ctx: ExtensionContext,
   failures: QuestionFailureBudget,
   presentationTimeoutMs: number,
+  readBlockedMessage: () => string,
 ): Promise<ConfirmationCardOutcome> {
-  return presentCustom(ctx, signal, failures, presentationTimeoutMs, (tui, theme, done, scopedSignal) =>
+  return presentCustom(ctx, signal, failures, presentationTimeoutMs, readBlockedMessage(), (tui, theme, done, scopedSignal) =>
     createConfirmationCard(tui, theme, done, snapshot, scopedSignal));
 }
 
@@ -139,6 +143,7 @@ export function createTool(options: {
   remoteOptionTransport?: RemoteOptionTransport;
   maxRetries?: number;
   presentationTimeoutMs?: number;
+  blockedMessage?: () => string;
   application?: DurableQuestionInteractionApplication;
 } = {}) {
   const application = options.application ?? createApplication(options);
@@ -166,9 +171,12 @@ function createApplication(options: {
   maxRetries?: number;
   presentationTimeoutMs?: number;
   continuationSink?: ContinuationSink;
+  /** Overrides how the blocked program-status message is read; defaults to the agent-directory config. */
+  blockedMessage?: () => string;
 }) {
   const journal = options.journal ?? new InMemoryInteractionJournal();
   const presentationTimeoutMs = options.presentationTimeoutMs ?? 5_000;
+  const readBlockedMessage = options.blockedMessage ?? (() => loadBlockedMessage());
   return new DurableQuestionInteractionApplication({
     journal,
     ...(options.maxRetries === undefined ? {} : { maxRetries: options.maxRetries }),
@@ -185,11 +193,12 @@ function createApplication(options: {
         options.remoteOptionTransport,
         failures,
         presentationTimeoutMs,
+        readBlockedMessage,
       );
     },
     openConfirmation: (snapshot, signal, ctx, failures) => {
       if (typeof ctx.ui.custom !== "function") throw new Error("ask_user_question confirmation requires ctx.ui.custom()");
-      return confirmation(snapshot, signal, ctx, failures, presentationTimeoutMs);
+      return confirmation(snapshot, signal, ctx, failures, presentationTimeoutMs, readBlockedMessage);
     },
   });
 }

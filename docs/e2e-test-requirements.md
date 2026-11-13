@@ -62,6 +62,12 @@ The real Pi acceptance suite must cover all of the following scenarios.
    - Treat top-level `question` plus `confirm:true`, without `formId` or `formIds`, as an ordinary boolean confirmation.
    - Keep targeted Submitted Form confirmation routed through the durable confirmation workflow.
 
+10. **Blocked program status**
+    - Launch the real TUI with `PI_PROGRAM_STATUS=1`, because terminal feature detection cannot confirm `OSC 7501` support inside a PTY.
+    - While the grouped form and the Submitted Form confirmation stay open, assert the raw output carries `\x1b]7501;state=blocked` with `kind=question` and the message `我需要你的帮助` (base64-encoded by Pi).
+    - After each dialog settles, assert a later `state=working` or `state=done` record, so the blocked status is not left behind.
+    - Repeat with `$PI_CODING_AGENT_DIR/ask-user-question.json` setting `blockedMessage` and assert the configured text, without restarting Pi between the two runs.
+
 ## Remote pagination mock API
 
 Run the repository mock API before the manual remote-data-source scenario:
