@@ -233,7 +233,7 @@ describe("Durable question application", () => {
     });
   });
 
-  it("persists cancellation before an aborted confirmation rejects", async () => {
+  it("persists an interruption before an aborted confirmation rejects, so a restart can restore it", async () => {
     const journal = new InMemoryInteractionJournal();
     const ctx = context((surface, call) => {
       if (call === 0) surface.handleInput("\u0013");
@@ -247,7 +247,7 @@ describe("Durable question application", () => {
     }, undefined, undefined, ctx)).rejects.toSatisfy((error: unknown) => {
       return JSON.parse((error as Error).message).error.code === "question_cancelled";
     });
-    expect(journal.values("interaction").at(-1)).toMatchObject({ state: "cancelled" });
+    expect(journal.values("interaction").at(-1)).toMatchObject({ state: "interrupted" });
   });
 
   it("rejects a stale action in place and adopts the authoritative journal revision", async () => {

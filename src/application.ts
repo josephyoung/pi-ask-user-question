@@ -281,9 +281,9 @@ export class DurableQuestionInteractionApplication {
     snapshot: FormInteractionSnapshot,
     signal: AbortSignal | undefined,
     context: ExtensionContext,
-    persistCancellationOnAbort = true,
+    persistInterruptionOnAbort = true,
   ): Promise<{ result: AskUserQuestionResult; snapshot: FormInteractionSnapshot }> {
-    return this.run(snapshot, signal, context, persistCancellationOnAbort);
+    return this.run(snapshot, signal, context, persistInterruptionOnAbort);
   }
 
   actionable(context: ExtensionContext): FormInteractionSnapshot | undefined {
@@ -297,6 +297,10 @@ export class DurableQuestionInteractionApplication {
     const replay = replayInteractions(this.options.journal.values("interaction", context));
     if (replay.diagnostics.some(diagnostic => diagnostic.code === "multiple_open_interactions")) return undefined;
     if (replay.actionable) return { snapshot: replay.actionable, needsInteraction: true };
+    const interrupted = [...replay.interactions.values()]
+      .filter(snapshot => snapshot.state === "interrupted")
+      .sort((left, right) => right.revision - left.revision)[0];
+    if (interrupted) return { snapshot: interrupted, needsInteraction: true };
     const continued = new Set((this.options.journal.values("continuation", context) as Array<{ continuationId?: unknown }>)
       .flatMap(value => typeof value?.continuationId === "string" ? [value.continuationId] : []));
     const terminal = [...replay.interactions.values()]
@@ -352,25 +356,30 @@ export class DurableQuestionInteractionApplication {
     return next;
   }
 
-  private cancelForAbort(snapshot: FormInteractionSnapshot, context: ExtensionContext): FormInteractionSnapshot {
+  /** Record an interruption instead of a cancellation, so a later session start can restore the interaction. */
+  private interruptForAbort(snapshot: FormInteractionSnapshot, context: ExtensionContext): FormInteractionSnapshot {
     const current = this.authoritative(snapshot, context);
-    if (current.state === "confirmed" || current.state === "cancelled") return current;
-    const cancelled = reduceInteraction(current, { type: "cancel", expectedRevision: current.revision });
-    this.options.journal.append("interaction", cancelled, context);
-    return cancelled;
+    if (current.state !== "awaiting_confirmation" && current.state !== "revising") return current;
+    const interrupted = reduceInteraction(current, { type: "interrupt", expectedRevision: current.revision });
+    this.options.journal.append("interaction", interrupted, context);
+    return interrupted;
   }
 
   private async run(
     initial: FormInteractionSnapshot,
     signal: AbortSignal | undefined,
     context: ExtensionContext,
-    persistCancellationOnAbort = true,
+    persistInterruptionOnAbort = true,
   ): Promise<{ result: AskUserQuestionResult; snapshot: FormInteractionSnapshot }> {
     let snapshot = initial;
     while (true) {
       if (signal?.aborted) {
-        if (persistCancellationOnAbort) this.cancelForAbort(snapshot, context);
+        if (persistInterruptionOnAbort) this.interruptForAbort(snapshot, context);
         throw questionCancelled();
+      }
+      if (snapshot.state === "interrupted") {
+        snapshot = this.transition(snapshot, { type: "resume_interrupt", expectedRevision: snapshot.revision }, context);
+        continue;
       }
       if (snapshot.state === "revising") {
         const answers: Record<string, Record<string, import("./types.js").Answer>> = {};
@@ -382,12 +391,12 @@ export class DurableQuestionInteractionApplication {
             outcome = await this.options.openForm(revisionRequest(form), signal, context, this.failures);
           } catch (cause) {
             if (signal?.aborted || cause instanceof QuestionInvalidError && cause.result.error.code === "question_cancelled") {
-              if (persistCancellationOnAbort) this.cancelForAbort(snapshot, context);
+              if (persistInterruptionOnAbort) this.interruptForAbort(snapshot, context);
             }
             throw cause;
           }
           if (outcome.kind === "aborted") {
-            if (persistCancellationOnAbort) this.cancelForAbort(snapshot, context);
+            if (persistInterruptionOnAbort) this.interruptForAbort(snapshot, context);
             throw questionCancelled();
           }
           if (outcome.kind === "cancelled") {
@@ -424,12 +433,12 @@ export class DurableQuestionInteractionApplication {
           : await openConfirmationCard(snapshot, signal, context);
       } catch (cause) {
         if (signal?.aborted || cause instanceof QuestionInvalidError && cause.result.error.code === "question_cancelled") {
-          if (persistCancellationOnAbort) this.cancelForAbort(snapshot, context);
+          if (persistInterruptionOnAbort) this.interruptForAbort(snapshot, context);
         }
         throw cause;
       }
       if (outcome.kind === "aborted") {
-        if (persistCancellationOnAbort) this.cancelForAbort(snapshot, context);
+        if (persistInterruptionOnAbort) this.interruptForAbort(snapshot, context);
         throw questionCancelled();
       }
       try {

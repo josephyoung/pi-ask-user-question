@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import askUserQuestion from "../src/index.js";
-import { createConfirmationInteraction, type SubmittedFormSnapshot } from "../src/interaction.js";
+import { createConfirmationInteraction, reduceInteraction, type SubmittedFormSnapshot } from "../src/interaction.js";
 import { JOURNAL_CUSTOM_TYPES } from "../src/journal.js";
 
 const theme = {
@@ -68,6 +68,56 @@ describe("durable Pi recovery", () => {
     await new Promise(resolve => setTimeout(resolve, 5));
     expect(ctx.ui.custom).toHaveBeenCalledTimes(1);
     expect(sendMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("restores a confirmation that a process exit interrupted", async () => {
+    const form: SubmittedFormSnapshot = {
+      formId: "form-1",
+      revision: 0,
+      title: "Leave request",
+      questions: [{ id: "reason", question: "Reason", inputType: "text", kind: "text", required: true, fieldAssist: false }],
+      answer: { reason: "Personal" },
+    };
+    const interrupted = reduceInteraction(createConfirmationInteraction("confirm-1", [form]), { type: "interrupt", expectedRevision: 0 });
+    const branch: any[] = [{
+      type: "custom", id: "entry-1", parentId: null, timestamp: new Date().toISOString(),
+      customType: JOURNAL_CUSTOM_TYPES.interaction, data: interrupted,
+    }];
+    const handlers = new Map<string, Function>();
+    const appendEntry = vi.fn((customType: string, data: unknown) => branch.push({
+      type: "custom", id: `entry-${branch.length}`, parentId: null,
+      timestamp: new Date().toISOString(), customType, data,
+    }));
+    const sendMessage = vi.fn((message: any) => branch.push({
+      type: "custom_message", id: `entry-${branch.length}`, parentId: null,
+      timestamp: new Date().toISOString(), ...message,
+    }));
+    const pi = {
+      registerTool: vi.fn(), registerEntryRenderer: vi.fn(), registerMessageRenderer: vi.fn(),
+      appendEntry, sendMessage,
+      on: vi.fn((name: string, handler: Function) => handlers.set(name, handler)),
+    } as any;
+    askUserQuestion(pi);
+    const ctx = {
+      mode: "tui", hasUI: true, cwd: "/tmp/project", model: undefined,
+      sessionManager: { getBranch: () => branch },
+      ui: {
+        custom: vi.fn(async (factory: any) => new Promise(resolve => {
+          const surface = factory({ requestRender: vi.fn(), terminal: { rows: 30 } }, theme, {}, resolve);
+          surface.handleInput("\r");
+        })),
+      },
+    } as any;
+
+    await handlers.get("session_start")?.({ type: "session_start", reason: "resume" }, ctx);
+    await new Promise(resolve => setTimeout(resolve, 5));
+    expect(ctx.ui.custom).toHaveBeenCalledTimes(1);
+    expect(appendEntry).toHaveBeenCalledWith(JOURNAL_CUSTOM_TYPES.interaction, expect.objectContaining({ state: "awaiting_confirmation" }));
+    expect(appendEntry).toHaveBeenCalledWith(JOURNAL_CUSTOM_TYPES.interaction, expect.objectContaining({ state: "confirmed" }));
+    expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      customType: JOURNAL_CUSTOM_TYPES.continuation,
+      content: expect.stringContaining("Personal"),
+    }), { triggerTurn: true });
   });
 
   it("delivers a terminal interaction left between snapshot and continuation append exactly once", async () => {

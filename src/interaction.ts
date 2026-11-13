@@ -8,8 +8,8 @@ export type FormInteractionState =
   | "awaiting_confirmation"
   | "revising"
   | "confirmed"
-  | "cancelled";
-
+  | "cancelled"
+  | "interrupted";
 export interface SubmittedFormSnapshot {
   formId: string;
   revision: number;
@@ -38,6 +38,8 @@ export type InteractionCommand =
       capabilityStates?: Record<string, Record<string, SerializedCapabilityState>>;
     }
   | { type: "cancel_revision"; expectedRevision: number }
+  | { type: "interrupt"; expectedRevision: number }
+  | { type: "resume_interrupt"; expectedRevision: number }
   | { type: "cancel"; expectedRevision: number };
 
 export class InteractionConflictError extends Error {
@@ -85,6 +87,16 @@ export function reduceInteraction(
     throw new InteractionConflictError("invalid_transition", current, "Interaction is terminal");
   }
 
+  if (current.state === "interrupted") {
+    if (command.type === "resume_interrupt") {
+      const { draftAnswers, ...base } = current;
+      return draftAnswers
+        ? { ...base, revision: current.revision + 1, state: "revising" }
+        : { ...base, revision: current.revision + 1, state: "awaiting_confirmation" };
+    }
+    if (command.type === "interrupt") return { ...current, revision: current.revision + 1 };
+    throw new InteractionConflictError("invalid_transition", current, `${command.type} is not allowed while interrupted`);
+  }
   const nextRevision = current.revision + 1;
   if (current.state === "awaiting_confirmation") {
     if (command.type === "confirm") {
@@ -111,6 +123,9 @@ export function reduceInteraction(
         forms: current.forms.map(copyForm),
         draftAnswers: Object.fromEntries(current.forms.map(form => [form.formId, copyAnswers(form.answer)])),
       };
+    }
+    if (command.type === "interrupt") {
+      return { ...current, revision: nextRevision, state: "interrupted" };
     }
     throw new InteractionConflictError(
       "invalid_transition",
@@ -158,6 +173,9 @@ export function reduceInteraction(
       state: "cancelled",
       continuationId: `${current.interactionId}:r${nextRevision}`,
     };
+  if (command.type === "interrupt") {
+    return { ...current, revision: nextRevision, state: "interrupted" };
+  }
   }
   throw new InteractionConflictError(
     "invalid_transition",
@@ -236,7 +254,7 @@ export function isFormInteractionSnapshot(value: unknown): value is FormInteract
   return candidate.schemaVersion === FORM_INTERACTION_SCHEMA_VERSION
     && typeof candidate.interactionId === "string"
     && Number.isInteger(candidate.revision)
-    && ["awaiting_confirmation", "revising", "confirmed", "cancelled"].includes(candidate.state ?? "")
+    && ["awaiting_confirmation", "revising", "confirmed", "cancelled", "interrupted"].includes(candidate.state ?? "")
     && validForms
     && (candidate.continuationId === undefined || typeof candidate.continuationId === "string");
 }

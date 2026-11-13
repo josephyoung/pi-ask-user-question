@@ -301,7 +301,7 @@ beforeAll(async () => {
   project = join(sandbox, "project"); state = join(sandbox, "state");
   const source = join(sandbox, "source"); barePath = join(sandbox, "repo.git");
   mkdirSync(project); mkdirSync(state); mkdirSync(source);
-  cpSync(root, source, { recursive: true, filter: path => !path.includes("/.git") && !path.includes("/node_modules") && !path.includes("/coverage") });
+  cpSync(root, source, { recursive: true, filter: path => !path.includes("/.git") && !path.includes("/node_modules") && !path.includes("/coverage") && !path.includes("/.codegraph") && !path.includes("/temp") });
   run("git", ["init"], source); run("git", ["add", "."], source);
   run("git", ["-c", "user.name=Acceptance", "-c", "user.email=acceptance@example.com", "commit", "-m", "test package"], source);
   run("git", ["clone", "--bare", source, barePath], sandbox);
@@ -323,7 +323,7 @@ beforeAll(async () => {
   const lockedPi = realpathSync(piExecutable);
   const installOutput = await runAsync(process.execPath, [lockedPi, "install", installSource, "-l"], project, { PI_CODING_AGENT_DIR: state, NPM_CONFIG_CACHE: join(sandbox, "npm-cache") });
   expect(installOutput).toContain("Installed");
-  expect(run(process.execPath, [lockedPi, "--version"], project, { PI_CODING_AGENT_DIR: state }).trim()).toBe("1.4.0");
+  expect(run(process.execPath, [lockedPi, "--version"], project, { PI_CODING_AGENT_DIR: state }).trim()).toBe("1.5.2");
   writeFileSync(join(state, "models.json"), JSON.stringify({ providers: { acceptance: { baseUrl: `${baseUrl}/v1`, api: "openai-completions", apiKey: "test", compat: { supportsDeveloperRole: false, supportsReasoningEffort: false }, models: [{ id: "local", reasoning: false, contextWindow: 32000, maxTokens: 4096 }] } } }));
   const extensions = join(state, "extensions");
   mkdirSync(extensions);

@@ -33,11 +33,11 @@ describe("canonical model-facing contract", () => {
     });
   });
 
-  it("supports Pi 1.4.0 and later in the 1.x line", () => {
+  it("supports Pi 1.4.0 and later in the 1.x line, developing against 1.5.2", () => {
     const pkg = JSON.parse(readFileSync(resolve(import.meta.dirname, "../package.json"), "utf8"));
     expect(pkg.peerDependencies["@earendil-works/pi-coding-agent"]).toBe("^1.4.0");
     expect(pkg.peerDependencies["@earendil-works/pi-tui"]).toBe("^1.4.0");
-    expect(pkg.devDependencies["@earendil-works/pi-coding-agent"]).toBe("1.4.0");
-    expect(pkg.devDependencies["@earendil-works/pi-tui"]).toBe("1.4.0");
+    expect(pkg.devDependencies["@earendil-works/pi-coding-agent"]).toBe("1.5.2");
+    expect(pkg.devDependencies["@earendil-works/pi-tui"]).toBe("1.5.2");
   });
 });
